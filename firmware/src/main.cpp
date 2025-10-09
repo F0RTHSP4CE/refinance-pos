@@ -188,7 +188,7 @@ void loopCardDetected()
     posCtx.balancePrefetched = true;
     posCtx.balanceCompleted = r.balanceCompleted;
     posCtx.balanceDraft = r.balanceDraft;
-    display.showMessage(String("@") + posCtx.payerName, ("PAID ") + String(posCtx.amount, 2) + " " + posCtx.currency);
+    display.showMessage(String("@") + posCtx.payerName, ("paid ") + String(posCtx.amount, 2) + " " + posCtx.currency);
     setState(PosState::TRANSACTION_OK);
 }
 
@@ -201,7 +201,7 @@ void loopTransactionOk()
         { // fetch balance once
             if (posCtx.balancePrefetched)
             {
-                display.showMessage(String("@") + posCtx.payerName, String(posCtx.balanceCompleted) + " " + posCtx.currency);
+                display.showMessage(String("Balance:"), String(posCtx.balanceCompleted) + " " + posCtx.currency);
                 setState(PosState::SHOW_BALANCE);
             }
         }

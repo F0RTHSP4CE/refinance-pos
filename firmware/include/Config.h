@@ -50,3 +50,24 @@ static const uint8_t LCD_ROWS = 2;
 #ifndef POS_CURRENCY
 #define POS_CURRENCY "GEL"
 #endif
+
+// Idle screen help hints
+// Define one or more short hint lines to rotate on the first LCD line while idle.
+// POS_NAME will also be part of the rotation automatically.
+// Keep each hint <= LCD_COLS characters for best results.
+#ifndef HINT_ROTATE_MS
+#define HINT_ROTATE_MS 3000 // milliseconds to show each hint while idle
+#endif
+
+#ifndef HELP_HINTS_DEFINED
+#define HELP_HINTS_DEFINED
+static const char *const HELP_HINTS[] = {
+    "wanna drink?",
+    "< resident card",
+    "cock'a cola",
+    "club mate",
+    "nuke coke",
+    "and cookies :3",
+};
+#define HELP_HINTS_COUNT (sizeof(HELP_HINTS) / sizeof(HELP_HINTS[0]))
+#endif
