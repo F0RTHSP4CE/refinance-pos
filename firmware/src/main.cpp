@@ -8,7 +8,6 @@
 #include "RelayLock.h"
 #include "HttpClient.h"
 #include "StateMachine.h"
-#include "Sha256.h"
 
 LoggerSerial logger;
 Display display(logger);
@@ -21,7 +20,13 @@ unsigned long lastHeartbeat = 0;
 
 // Using default global Wire instance instead of a separate TwoWire
 
-String sha256Hex(const String &input) { return computeSha256Hex(input); }
+String formatAmountCompact(double value)
+{
+    long rounded = lround(value);
+    if (fabs(value - (double)rounded) < 0.0001)
+        return String(rounded);
+    return String(value, 2);
+}
 
 bool ensureWifi(uint32_t timeoutMs = 12000)
 {
@@ -142,15 +147,23 @@ void setup()
         logger.info("PN532 init OK");
     }
     ensureWifi();
-    // DNS test for API host
+    // DNS test for API hosts
     IPAddress testIp;
-    if (WiFi.hostByName(String(API_BASE).substring(String(API_BASE).indexOf("//") + 2).c_str(), testIp))
+    if (WiFi.hostByName(String(REFINANCE_API_URL).substring(String(REFINANCE_API_URL).indexOf("//") + 2).c_str(), testIp))
     {
-        logger.info(String("DNS OK ") + testIp.toString());
+        logger.info(String("DNS REFINANCE OK ") + testIp.toString());
     }
     else
     {
-        logger.error("DNS lookup failed at setup");
+        logger.error("DNS lookup failed for REFINANCE at setup");
+    }
+    if (WiFi.hostByName(String(USBUTLER_API_URL).substring(String(USBUTLER_API_URL).indexOf("//") + 2).c_str(), testIp))
+    {
+        logger.info(String("DNS USBUTLER OK ") + testIp.toString());
+    }
+    else
+    {
+        logger.error("DNS lookup failed for USBUTLER at setup");
     }
     api.begin();
     setState(PosState::IDLE);
@@ -163,7 +176,6 @@ void loopIdle()
     if (nfcReader->readCardUID(uid))
     {
         posCtx.cardUID = uid;
-        posCtx.cardHash = sha256Hex(uid + CARD_HASH_SALT);
         logger.info("Card UID: " + uid);
         setState(PosState::CARD_DETECTED);
     }
@@ -171,24 +183,25 @@ void loopIdle()
 
 void loopCardDetected()
 {
-    // Single POS charge call replaces token->me->transaction sequence
+    // Two-step auth: card UID -> USBUTLER entity -> REFINANCE POS charge
     if (!ensureWifi())
         return;
     display.showMessage("PROCESSING...");
-    auto r = api.posCharge(posCtx.cardHash, posCtx.amount, posCtx.currency, POS_ENTITY_ID);
+    auto r = api.authorizeByCardUID(posCtx.cardUID, posCtx.amount, posCtx.currency, POS_ENTITY_ID);
     if (!r.ok || !r.success)
     {
-        display.showMessage(String("PAYMENT FAILED"), String("HTTP ") + r.httpCode);
+        String reason = (r.error.length() > 0) ? r.error : (String("HTTP ") + r.httpCode);
+        display.showMessage(String("PAYMENT FAILED"), reason);
         setState(PosState::ERROR_STATE);
         display.blink(3, 250);
         return;
     }
-    posCtx.meId = r.entityId; // treat returned entity as payer
+    posCtx.meId = r.entityId;
     posCtx.payerName = r.entityName;
-    posCtx.balancePrefetched = true;
+    posCtx.balancePrefetched = r.balanceAvailable;
     posCtx.balanceCompleted = r.balanceCompleted;
     posCtx.balanceDraft = r.balanceDraft;
-    display.showMessage(String("@") + posCtx.payerName, ("paid ") + String(posCtx.amount, 2) + " " + posCtx.currency);
+    display.showMessage(String("@") + posCtx.payerName, String("-") + formatAmountCompact(posCtx.amount) + " " + posCtx.currency);
     setState(PosState::TRANSACTION_OK);
 }
 

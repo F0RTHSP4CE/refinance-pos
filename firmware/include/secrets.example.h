@@ -6,10 +6,10 @@ static const char *WIFI_SSID = "YOUR_WIFI_SSID";
 static const char *WIFI_PASS = "YOUR_WIFI_PASSWORD";
 
 // REFINANCE API base (no trailing slash)
-static const char *API_BASE = "https://api.example.com";
+static const char *REFINANCE_API_URL = "https://api.example.com";
 
-// POS entity id in REFINANCE backend representing this terminal/fridge
-static const char *POS_ENTITY_ID = "REFINANCE_POS_ENTITY_ID";
+// USBUTLER API base (no trailing slash)
+static const char *USBUTLER_API_URL = "https://usbutler.example.com";
 
-// Salt used to hash NFC card UID before sending to REFINANCE token endpoint
-static const char *CARD_HASH_SALT = "CHANGE_ME_SALT";
+// Secret key for REFINANCE POS endpoint access (x-pos-secret)
+static const char *POS_SECRET = "CHANGE_ME_POS_SECRET";

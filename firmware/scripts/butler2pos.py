@@ -1,13 +1,13 @@
-import hashlib
+"""Utility to print UID -> identifier mappings for by-identifier endpoints.
 
-# cards.json content as is
+Populate `users` with:
+{
+    "entity_name": ["UID1", "UID2"]
+}
+"""
+
 users = {}
 
-salt = ""
-
-for username, uids in users.items():
+for entity_name, uids in users.items():
     for uid in uids:
-        # Compute SHA256 of uid + salt
-        to_hash = uid.upper() + salt
-        hashed = hashlib.sha256(to_hash.encode("utf-8")).hexdigest()
-        print(f"{username} - {hashed}")
+        print(f"uid={uid.upper()} identifier={entity_name}")

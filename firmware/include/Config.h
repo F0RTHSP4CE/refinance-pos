@@ -11,7 +11,7 @@ static const uint8_t RELAY_PIN = 14;
 static const uint32_t DOOR_HOLD_MS = 4000;
 
 // Secret Network / API values are declared in secrets.h (not committed)
-#include "secrets.h" // defines WIFI_SSID, WIFI_PASS, API_BASE, POS_ENTITY_ID, CARD_HASH_SALT
+#include "secrets.h" // defines WIFI_SSID, WIFI_PASS, REFINANCE_API_URL, USBUTLER_API_URL
 
 // I2C pin defaults (D1 Mini): SDA=D2(GPIO4) SCL=D1(GPIO5)
 static const uint8_t I2C_SDA = 4;
@@ -41,8 +41,6 @@ static const uint8_t LCD_ROWS = 2;
 #define POS_NAME "F0 FRIDGE"
 #endif
 
-// Security / Hashing: CARD_HASH_SALT defined in secrets.h
-
 // Pricing (can be overridden via build_flags e.g. -DPOS_PRICE=7.50 -DPOS_CURRENCY=\"USD\")
 #ifndef POS_PRICE
 #define POS_PRICE 5.0
@@ -51,23 +49,60 @@ static const uint8_t LCD_ROWS = 2;
 #define POS_CURRENCY "GEL"
 #endif
 
+// POS charge request metadata
+#ifndef POS_ENTITY_ID
+#define POS_ENTITY_ID 141
+#endif
+
 // Idle screen help hints
 // Define one or more short hint lines to rotate on the first LCD line while idle.
 // POS_NAME will also be part of the rotation automatically.
 // Keep each hint <= LCD_COLS characters for best results.
 #ifndef HINT_ROTATE_MS
-#define HINT_ROTATE_MS 3000 // milliseconds to show each hint while idle
+#define HINT_ROTATE_MS 5000 // milliseconds to show each hint while idle
+#endif
+
+#ifndef HELP_HINTS_SHOW_MS
+#define HELP_HINTS_SHOW_MS HINT_ROTATE_MS
+#endif
+
+#ifndef IDLE_PROMPT_TEXT
+#define IDLE_PROMPT_TEXT " tap your key"
+#endif
+
+#ifndef IDLE_PROMPT_TEXT_LEN
+#define IDLE_PROMPT_TEXT_LEN (sizeof(IDLE_PROMPT_TEXT) - 1)
 #endif
 
 #ifndef HELP_HINTS_DEFINED
 #define HELP_HINTS_DEFINED
 static const char *const HELP_HINTS[] = {
     "wanna drink?",
-    "< resident card",
-    "cock'a cola",
     "club mate",
     "nuke coke",
     "and cookies :3",
+    "soda for science",
+    "beverage time",
+    "sip sip hooray",
+    "cheers, human",
+    "insert coin :)",
+    "thirst 9000",
+    "powered by pizza",
+    "cock'a cola",
+    "drinks incoming",
+    "coin? no, card",
+    "sip happens",
+    "fuel for humans",
+    "thirst buster",
+    "liquid courage",
+    "pop, fizz, yum",
+    "refreshment 4U",
+    "cold as space",
+    "brew-tiful day",
+    "ice cold win",
+    "press to sip",
+    "thirsty? press",
+    "cheers & beers",
 };
 #define HELP_HINTS_COUNT (sizeof(HELP_HINTS) / sizeof(HELP_HINTS[0]))
 #endif

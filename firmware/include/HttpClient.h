@@ -3,57 +3,22 @@
 #include <ESP8266HTTPClient.h>
 #include <WiFiClientSecure.h>
 #include <WiFiClient.h>
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 #include <ArduinoJson.h>
-#pragma GCC diagnostic pop
 #include "ILogger.h"
 #include "Config.h"
 
-struct TokenResponse
+struct AuthLookupResult
 {
-    String token;
     bool ok = false;
-    int httpCode = 0;
-    String body; // raw body (for debugging / non-200)
-};
-struct Entity
-{
-    String id;
-    String name;
-    bool ok = false;
-    int httpCode = 0;
-    String body;
-};
-struct TransactionResult
-{
     bool success = false;
-    String id;
-    String status;
+    String entityId;
+    String entityName;
+    bool balanceAvailable = false;
+    double balanceCompleted = 0;
+    double balanceDraft = 0;
+    int httpCode = 0;
+    String body;
     String error;
-    int httpCode = 0;
-    String body;
-};
-struct Balance
-{
-    bool ok = false;
-    String completed = "0";
-    String draft = "0";
-    int httpCode = 0;
-    String body;
-};
-
-struct PosChargeResult
-{
-    bool ok = false;             // overall HTTP and parse success
-    bool success = false;        // transaction success (entity + balance present)
-    String entityId;             // entity id returned
-    String entityName;           // entity name returned
-    double balanceCompleted = 0; // completed balance after charge
-    double balanceDraft = 0;     // draft balance after charge
-    int httpCode = 0;
-    String body;  // raw body for diagnostics
-    String error; // parse / HTTP error detail
 };
 
 class ApiClient
@@ -62,60 +27,203 @@ public:
     ApiClient(ILogger &logger) : _logger(logger) {}
 
     bool begin() { return true; }
-    // (Legacy methods fetchTokenByCardHash/getMe/createTransaction/getBalance removed after migration to posCharge)
 
-    // New single-call POS charge endpoint: POST /pos/transaction/by-card
-    // Request: {card_hash, amount, currency, to_entity_id}
-    // Response: { entity: EntitySchema, balance: BalanceSchema }
-    PosChargeResult posCharge(const String &cardHash, double amount, const String &currency, const String &toEntityId)
+    AuthLookupResult authorizeByCardUID(const String &cardUID, double amount, const String &currency, int toEntityId)
     {
-        PosChargeResult r;
-        HTTPClient http;
-        String url = String(API_BASE) + "/pos/charge/by-card";
-        bool isHttps = url.startsWith(F("https://"));
+        AuthLookupResult r;
+        String entityName;
+        bool fromCache = lookupCachedEntityName(cardUID, entityName);
+        int code = 0;
 
+        if (!fromCache)
+        {
+            JsonDocument butlerDoc;
+            JsonDocument butlerReq;
+            butlerReq["value"] = cardUID;
+            String butlerPayload;
+            serializeJson(butlerReq, butlerPayload);
+
+            code = postJson(String(USBUTLER_API_URL) + "/api/public/users/by-identifier", butlerPayload, nullptr, butlerDoc, r.body, r.error);
+            r.httpCode = code;
+            if (code != 200)
+                return r;
+
+            entityName = firstNonEmpty({
+                butlerDoc["entity_name"],
+                butlerDoc["data"]["entity_name"],
+                butlerDoc["entity"]["name"],
+                butlerDoc["data"]["entity"]["name"],
+                butlerDoc["name"],
+                butlerDoc["data"]["name"],
+                butlerDoc["user"]["name"],
+                butlerDoc["identifier"],
+                butlerDoc["user"]["identifier"],
+                butlerDoc["username"],
+                butlerDoc["user"]["username"]});
+            if (entityName.length() == 0)
+            {
+                r.error = F("USBUTLER response missing entity_name");
+                return r;
+            }
+
+            cacheEntityName(cardUID, entityName);
+        }
+
+        JsonDocument chargeReq;
+        chargeReq["entity_name"] = entityName;
+        chargeReq["amount"] = amount;
+        chargeReq["currency"] = currency;
+        chargeReq["to_entity_id"] = toEntityId;
+        String chargePayload;
+        serializeJson(chargeReq, chargePayload);
+
+        JsonDocument chargeDoc;
+        code = postJson(String(REFINANCE_API_URL) + "/pos/charge", chargePayload, POS_SECRET, chargeDoc, r.body, r.error);
+        r.httpCode = code;
+        if (code != 200)
+            return r;
+
+        r.entityName = firstNonEmpty({
+            chargeDoc["entity"]["name"],
+            chargeDoc["data"]["entity"]["name"],
+            chargeDoc["name"],
+            chargeDoc["data"]["name"]});
+        if (r.entityName.length() == 0)
+            r.entityName = entityName;
+        r.entityId = firstNonEmpty({
+            chargeDoc["entity"]["id"],
+            chargeDoc["data"]["entity"]["id"],
+            chargeDoc["id"],
+            chargeDoc["data"]["id"]});
+
+        JsonVariantConst balance = chargeDoc["balance"];
+        r.balanceAvailable = !balance.isNull();
+        r.balanceCompleted = balanceValue(balance["completed"], currency);
+        r.balanceDraft = balanceValue(balance["draft"], currency);
+        r.ok = true;
+        r.success = true;
+        return r;
+    }
+
+private:
+    static constexpr size_t UID_NAME_CACHE_SIZE = 12;
+
+    struct UidNameCacheEntry
+    {
+        String cardUID;
+        String entityName;
+        bool valid = false;
+    };
+
+    bool lookupCachedEntityName(const String &cardUID, String &entityName)
+    {
+        for (size_t i = 0; i < UID_NAME_CACHE_SIZE; ++i)
+        {
+            if (_uidNameCache[i].valid && _uidNameCache[i].cardUID == cardUID)
+            {
+                entityName = _uidNameCache[i].entityName;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    void cacheEntityName(const String &cardUID, const String &entityName)
+    {
+        for (size_t i = 0; i < UID_NAME_CACHE_SIZE; ++i)
+        {
+            if (_uidNameCache[i].valid && _uidNameCache[i].cardUID == cardUID)
+            {
+                _uidNameCache[i].entityName = entityName;
+                return;
+            }
+        }
+
+        _uidNameCache[_uidNameCacheNext].cardUID = cardUID;
+        _uidNameCache[_uidNameCacheNext].entityName = entityName;
+        _uidNameCache[_uidNameCacheNext].valid = true;
+        _uidNameCacheNext = (_uidNameCacheNext + 1) % UID_NAME_CACHE_SIZE;
+    }
+
+    static String firstNonEmpty(std::initializer_list<JsonVariantConst> values)
+    {
+        for (JsonVariantConst value : values)
+        {
+            String s = value.isNull() ? String() : value.as<String>();
+            s.trim();
+            if (s.length() > 0)
+                return s;
+        }
+        return String();
+    }
+
+    static double balanceValue(JsonVariantConst value, const String &currency)
+    {
+        if (value.isNull())
+            return 0.0;
+        if (!value.is<JsonObjectConst>())
+            return value.as<double>();
+
+        JsonObjectConst obj = value.as<JsonObjectConst>();
+        JsonVariantConst direct = obj[currency.c_str()];
+        if (!direct.isNull())
+            return direct.as<double>();
+        for (JsonPairConst kv : obj)
+        {
+            if (String(kv.key().c_str()).equalsIgnoreCase(currency))
+                return kv.value().as<double>();
+        }
+        for (JsonPairConst kv : obj)
+        {
+            return kv.value().as<double>();
+        }
+        return 0.0;
+    }
+
+    int postJson(const String &url,
+                 const String &payload,
+                 const char *posSecret,
+                 JsonDocument &outDoc,
+                 String &responseBody,
+                 String &error)
+    {
+        HTTPClient http;
+        int code = -1;
         auto perform = [&](auto &client)
         {
-            if (http.begin(client, url))
+            if (!http.begin(client, url))
             {
-                http.addHeader("Content-Type", "application/json");
-                JsonDocument doc; // small request
-                doc.clear();
-                doc["card_hash"] = cardHash;
-                doc["amount"] = amount;
-                doc["currency"] = currency;
-                doc["to_entity_id"] = toEntityId.toInt();
-                String payload;
-                serializeJson(doc, payload);
-#ifdef API_HTTP_DEBUG
-                _logger.info(String(F("HTTP POST ")) + url + F(" payload=") + payload);
-#endif
-                int code = http.POST(payload);
-                r.httpCode = code;
-                if (code == 200)
-                {
-                    r.body = http.getString();
-                    parsePosChargeBody(r.body, currency, r);
-                }
-                else
-                {
-                    r.error = String("HTTP ") + code;
-                    r.body = http.getString();
-#ifdef API_HTTP_DEBUG
-                    if (r.body.length())
-                        _logger.warn(String(F("posCharge error body=")) + r.body);
-#endif
-                }
-                http.end();
+                error = F("http.begin failed");
+                code = -1;
+                return;
             }
-            else
+
+            http.addHeader("Content-Type", "application/json");
+            if (posSecret != nullptr)
+                http.addHeader("x-pos-secret", posSecret);
+
+#ifdef API_HTTP_DEBUG
+            _logger.info(String(F("HTTP POST ")) + url + F(" payload=") + payload);
+#endif
+            code = http.POST(payload);
+            responseBody = http.getString();
+            http.end();
+
+            if (code != 200)
             {
-                r.error = F("http.begin posCharge failed");
-                _logger.error(r.error);
+                error = String(F("HTTP ")) + code;
+                return;
+            }
+
+            auto jsonErr = deserializeJson(outDoc, responseBody);
+            if (jsonErr)
+            {
+                code = -1;
+                error = String(F("JSON err: ")) + jsonErr.c_str();
             }
         };
 
-        if (isHttps)
+        if (url.startsWith(F("https://")))
         {
             WiFiClientSecure client;
 #ifdef API_INSECURE_TLS
@@ -128,78 +236,11 @@ public:
             WiFiClient client;
             perform(client);
         }
-        return r;
-    }
 
-private:
-    // ---- Parsing helpers to keep HTTP flow clean ----
-    static String toStringSafe(JsonVariant v)
-    {
-        return v.isNull() ? String() : v.as<String>(); // ArduinoJson handles numeric -> String
-    }
-
-    static double toNumber(JsonVariant v)
-    {
-        return v.isNull() ? 0.0 : v.as<double>(); // Handles int/long/double/"123.4"
-    }
-
-    double extractCurrency(JsonObject section, const String &currency)
-    {
-        if (!section)
-            return 0.0;
-
-        JsonVariant direct = section[currency];
-        if (!direct.isNull())
-            return toNumber(direct);
-
-        for (JsonPair kv : section)
-        {
-            if (String(kv.key().c_str()).equalsIgnoreCase(currency))
-                return toNumber(kv.value());
-        }
-        for (JsonPair kv : section)
-        {
-#ifdef API_HTTP_DEBUG
-            _logger.warn(String(F("balance fallback using key ")) + kv.key().c_str());
-#endif
-            return toNumber(kv.value());
-        }
-        return 0.0;
-    }
-
-    void parsePosChargeBody(const String &body, const String &currency, PosChargeResult &r)
-    {
-        StaticJsonDocument<4096> resp; // sized for entity + balance objects
-        auto err = deserializeJson(resp, body);
-        if (err)
-        {
-            r.error = String(F("JSON err: ")) + err.c_str();
-            _logger.error(r.error);
-            return;
-        }
-
-        JsonObject ent = resp["entity"].as<JsonObject>();
-        JsonObject bal = resp["balance"].as<JsonObject>();
-
-        if (ent)
-        {
-            r.entityId = toStringSafe(ent["id"]);
-            r.entityName = toStringSafe(ent["name"]);
-        }
-
-        if (bal)
-        {
-            r.balanceCompleted = extractCurrency(bal["completed"].as<JsonObject>(), currency);
-            r.balanceDraft = extractCurrency(bal["draft"].as<JsonObject>(), currency);
-        }
-
-        r.ok = true;
-        r.success = r.entityId.length() > 0;
-        if (!r.success)
-        {
-            r.error = F("missing entity in response");
-        }
+        return code;
     }
 
     ILogger &_logger;
+    UidNameCacheEntry _uidNameCache[UID_NAME_CACHE_SIZE];
+    size_t _uidNameCacheNext = 0;
 };

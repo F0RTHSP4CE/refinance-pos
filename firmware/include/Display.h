@@ -4,6 +4,18 @@
 #include "ILogger.h"
 #include "Config.h"
 
+#ifndef IDLE_PROMPT_BLINK_MS
+#define IDLE_PROMPT_BLINK_MS 1000
+#endif
+
+#ifndef IDLE_PROMPT_EFFECT_SWITCH_MS
+#define IDLE_PROMPT_EFFECT_SWITCH_MS 10000
+#endif
+
+#ifndef IDLE_PROMPT_FLICKER_MS
+#define IDLE_PROMPT_FLICKER_MS 500
+#endif
+
 class Display
 {
 public:
@@ -13,6 +25,17 @@ public:
     {
         _lcd.init(); // low-level init
         _lcd.backlight();
+        uint8_t leftArrow[8] = {
+            B00001,
+            B00011,
+            B00111,
+            B01111,
+            B00111,
+            B00011,
+            B00001,
+            B00000,
+        };
+        _lcd.createChar(0, leftArrow);
         clear();
         printLine("Booting...", 0);
         // no return
@@ -60,20 +83,21 @@ public:
         clear();
         // Top line will rotate hints; start with provided posName immediately (centered)
         printCentered(posName, 0);
-        // Prepare centered price text on bottom line (no blinking)
-        char buf[32];
-        snprintf(buf, sizeof(buf), "%.2f %s", amount, currency.c_str());
-        String t(buf);
-        if ((int)t.length() > LCD_COLS)
-            t = t.substring(0, LCD_COLS); // trim to fit
-        uint8_t startCol = (t.length() >= LCD_COLS) ? 0 : ((LCD_COLS - t.length()) / 2);
-        _lcd.setCursor(startCol, (LCD_ROWS > 1 ? 1 : 0));
-        _lcd.print(t);
+        // Bottom line prompt
+        if (LCD_ROWS > 1)
+            printIdlePrompt(true);
         // Enable idle rotation
         _idle.active = true;
         _idle.lastRotate = millis();
         _idle.index = 0; // next after POS_NAME
         _idle.posName = posName;
+        _idle.promptVisible = true;
+        _idle.lastPromptBlink = millis();
+        _idle.effect = IdlePromptEffect::BLINK;
+        _idle.lastEffectSwitch = millis();
+        _idle.lastPromptFlicker = millis();
+        _idle.flickerRestorePending = false;
+        _idle.flickerCharIndex = 0;
     }
 
     void showStatus(const String &status, const String &posName = POS_NAME)
@@ -91,7 +115,7 @@ public:
         // Handle idle hint rotation (top line)
         if (_idle.active)
         {
-            if (now - _idle.lastRotate >= HINT_ROTATE_MS)
+            if (now - _idle.lastRotate >= HELP_HINTS_SHOW_MS)
             {
                 _idle.lastRotate = now;
                 // Determine next text: cycle POS_NAME + HELP_HINTS
@@ -108,18 +132,69 @@ public:
                 printCentered(nextText, 0);
                 _idle.index = (_idle.index + 1) % (HELP_HINTS_COUNT + 1);
             }
+
+            if (LCD_ROWS > 1 && now - _idle.lastPromptBlink >= IDLE_PROMPT_BLINK_MS)
+            {
+                if (now - _idle.lastEffectSwitch >= IDLE_PROMPT_EFFECT_SWITCH_MS)
+                {
+                    _idle.lastEffectSwitch = now;
+                    _idle.effect = (_idle.effect == IdlePromptEffect::BLINK) ? IdlePromptEffect::FLICKER : IdlePromptEffect::BLINK;
+                    _idle.promptVisible = true;
+                    _idle.flickerRestorePending = false;
+                    printIdlePrompt(true);
+                }
+
+                if (_idle.effect == IdlePromptEffect::BLINK)
+                {
+                    _idle.lastPromptBlink = now;
+                    _idle.promptVisible = !_idle.promptVisible;
+                    printIdlePrompt(_idle.promptVisible);
+                }
+                else
+                {
+                    if (_idle.flickerRestorePending)
+                    {
+                        printIdlePrompt(true);
+                        _idle.flickerRestorePending = false;
+                    }
+                    else if (now - _idle.lastPromptFlicker >= IDLE_PROMPT_FLICKER_MS)
+                    {
+                        _idle.lastPromptFlicker = now;
+                        printIdlePromptFlicker(_idle.flickerCharIndex);
+                        do
+                        {
+                            _idle.flickerCharIndex = (_idle.flickerCharIndex + 1) % IDLE_PROMPT_TEXT_LEN;
+                        } while (IDLE_PROMPT_TEXT[_idle.flickerCharIndex] == ' ');
+                        _idle.flickerRestorePending = true;
+                    }
+                }
+            }
         }
     }
 
 private:
+
+    enum class IdlePromptEffect
+    {
+        BLINK,
+        FLICKER
+    };
+
     LiquidCrystal_I2C _lcd;
     ILogger &_logger;
     struct IdleRotation
     {
         bool active = false;
         unsigned long lastRotate = 0;
+        unsigned long lastPromptBlink = 0;
+        unsigned long lastPromptFlicker = 0;
+        unsigned long lastEffectSwitch = 0;
         uint8_t index = 0; // 0 -> POS_NAME, 1..N -> hints
+        uint8_t flickerCharIndex = 0;
         String posName;
+        bool promptVisible = true;
+        bool flickerRestorePending = false;
+        IdlePromptEffect effect = IdlePromptEffect::BLINK;
     } _idle;
 
     void printCentered(const String &text, uint8_t line)
@@ -136,5 +211,37 @@ private:
             _lcd.print(' ');
         _lcd.setCursor(startCol, line);
         _lcd.print(t);
+    }
+
+    void printIdlePrompt(bool visible)
+    {
+        _lcd.setCursor(0, 1);
+        for (uint8_t i = 0; i < LCD_COLS; i++)
+            _lcd.print(' ');
+        if (visible)
+        {
+            _lcd.setCursor(0, 1);
+            _lcd.write((uint8_t)0);
+            _lcd.print(IDLE_PROMPT_TEXT);
+        }
+    }
+
+    void printIdlePromptFlicker(uint8_t blankIndex)
+    {
+        char buffer[IDLE_PROMPT_TEXT_LEN + 1];
+        for (uint8_t i = 0; i < IDLE_PROMPT_TEXT_LEN; i++)
+            buffer[i] = IDLE_PROMPT_TEXT[i];
+        buffer[IDLE_PROMPT_TEXT_LEN] = '\0';
+
+        if (blankIndex < IDLE_PROMPT_TEXT_LEN)
+            buffer[blankIndex] = ' ';
+
+        _lcd.setCursor(0, 1);
+        for (uint8_t i = 0; i < LCD_COLS; i++)
+            _lcd.print(' ');
+
+        _lcd.setCursor(0, 1);
+        _lcd.write((uint8_t)0);
+        _lcd.print(buffer);
     }
 };

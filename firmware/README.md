@@ -9,24 +9,25 @@ Modular embedded project for an NFC-based point-of-sale fridge lock using:
 
 ## Flow
 1. User taps NFC card
-2. Device hashes card UID + salt and creates a transaction via `/pos/charge/by-card` (card_hash, `POS_ENTITY_ID`, `POS_PRICE`, `POS_CURRENCY`, comment)
-5. On success: energizes relay (opens door) for 5 seconds
-6. While open, displays user balance
-7. Returns to idle
+2. Device sends card UID as `value` to `USBUTLER_API_URL/api/public/users/by-identifier`
+3. If a user is found, device calls `REFINANCE_API_URL/pos/charge` with `x-pos-secret` and body: `entity_name`, `amount`, `currency`, `to_entity_id`
+4. On success: energizes relay (opens door) for the configured hold duration
+5. Returns to idle
 
 
 ## Configuration
 Configuration steps:
 1. Copy `include/secrets.example.h` to `include/secrets.h` and fill in:
   - WIFI_SSID / WIFI_PASS
-  - API_BASE (REFINANCE backend base URL, no trailing slash)
-  - POS_ENTITY_ID (REFINANCE entity id for this POS)
-  - CARD_HASH_SALT (unique, long random string)
+  - REFINANCE_API_URL (REFINANCE backend base URL, no trailing slash)
+  - USBUTLER_API_URL (USBUTLER backend base URL, no trailing slash)
+  - POS_SECRET (used as `x-pos-secret` header for `/pos/charge`)
 2. Adjust `include/Config.h` for:
   - RELAY_PIN
   - I2C pins
   - Timing constants
-  - POS_PRICE / POS_CURRENCY (default price & currency shown/charged)
+  - POS_PRICE / POS_CURRENCY (default price & currency charged)
+  - POS_ENTITY_ID (`to_entity_id` for `/pos/charge`)
    (Can also be overridden per build using PlatformIO build_flags)
 
 ## Building / Uploading
