@@ -9,15 +9,26 @@ public:
   {
     pinMode(RELAY_PIN, OUTPUT_OPEN_DRAIN); // use open-drain to avoid powering relay coil when off
     digitalWrite(RELAY_PIN, HIGH);         // assume LOW=locked (inactive)
+    active = false;
   }
 
   void open()
   {
     digitalWrite(RELAY_PIN, LOW); // energize
+    active = true;
   }
 
   void close()
   {
     digitalWrite(RELAY_PIN, HIGH);
+    active = false;
   }
+
+  bool isActive() const
+  {
+    return active;
+  }
+
+private:
+  bool active = false;
 };

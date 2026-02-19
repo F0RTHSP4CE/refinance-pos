@@ -5,6 +5,9 @@
 // D1 Mini (ESP8266) typical available GPIOs: D1=GPIO5 (SCL), D2=GPIO4 (SDA), D5=14, D6=12, D7=13, D8=15
 // Choose a safe GPIO for relay (not pulled low/high at boot). Using D5 (GPIO14).
 static const uint8_t RELAY_PIN = 14;
+static const uint8_t STATUS_LED_STRIP_PIN = D4;
+static const uint8_t STATUS_LED_STRIP_COUNT = 9;
+static const uint8_t STATUS_LED_BRIGHTNESS = 64;
 
 // Timing
 // Duration the relay stays energized/open after successful transaction (ms)

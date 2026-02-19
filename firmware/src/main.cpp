@@ -8,6 +8,7 @@
 #include "RelayLock.h"
 #include "HttpClient.h"
 #include "StateMachine.h"
+#include <Adafruit_NeoPixel.h>
 
 LoggerSerial logger;
 Display display(logger);
@@ -17,6 +18,10 @@ NfcReader *nfcReader; // created after Wire init
 PosContext posCtx;
 PosState state = PosState::BOOT;
 unsigned long lastHeartbeat = 0;
+Adafruit_NeoPixel statusStrip(STATUS_LED_STRIP_COUNT, STATUS_LED_STRIP_PIN, NEO_GRB + NEO_KHZ800);
+bool lastRelayActive = false;
+uint8_t lastRedLevel = 255;
+bool ledModeInitialized = false;
 
 // Using default global Wire instance instead of a separate TwoWire
 
@@ -26,6 +31,63 @@ String formatAmountCompact(double value)
     if (fabs(value - (double)rounded) < 0.0001)
         return String(rounded);
     return String(value, 2);
+}
+
+void setStatusStripColor(uint8_t r, uint8_t g, uint8_t b)
+{
+    uint32_t color = statusStrip.Color(r, g, b);
+    for (uint16_t i = 0; i < statusStrip.numPixels(); i++)
+    {
+        statusStrip.setPixelColor(i, color);
+    }
+    statusStrip.show();
+}
+
+void syncStatusStripWithRelay()
+{
+    bool relayActive = lockCtrl.isActive();
+    if (relayActive)
+    {
+        if (!ledModeInitialized || !lastRelayActive)
+        {
+            setStatusStripColor(0, 255, 0);
+            ledModeInitialized = true;
+        }
+        lastRelayActive = true;
+        return;
+    }
+
+    const uint8_t minRed = 26; // ~10% of 255
+    if (state == PosState::IDLE)
+    {
+        const uint32_t periodMs = 1000;
+        uint32_t phase = millis() % periodMs;
+        uint32_t halfPeriod = periodMs / 2;
+        uint8_t red = 255;
+        if (phase < halfPeriod)
+        {
+            red = 255 - ((255 - minRed) * phase) / halfPeriod;
+        }
+        else
+        {
+            red = minRed + ((255 - minRed) * (phase - halfPeriod)) / halfPeriod;
+        }
+
+        if (!ledModeInitialized || lastRelayActive || red != lastRedLevel)
+        {
+            setStatusStripColor(red, 0, 0);
+            lastRedLevel = red;
+            ledModeInitialized = true;
+        }
+    }
+    else if (!ledModeInitialized || lastRelayActive || lastRedLevel != 255)
+    {
+        setStatusStripColor(255, 0, 0);
+        lastRedLevel = 255;
+        ledModeInitialized = true;
+    }
+
+    lastRelayActive = false;
 }
 
 bool ensureWifi(uint32_t timeoutMs = 12000)
@@ -137,6 +199,9 @@ void setup()
 
     display.begin();
     lockCtrl.begin();
+    statusStrip.begin();
+    statusStrip.setBrightness(STATUS_LED_BRIGHTNESS);
+    setStatusStripColor(255, 0, 0);
     nfcReader = new NfcReader(Wire, logger);
     if (!nfcReader->begin())
     {
@@ -275,6 +340,7 @@ void loop()
     default:
         break;
     }
+    syncStatusStripWithRelay();
     // Animate any active display effects (e.g., idle price blink)
     display.tick();
 }
