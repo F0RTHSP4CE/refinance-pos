@@ -250,6 +250,26 @@ private:
                            statusPrefix,
                            String(F("[connect ")) + attempt + String(F("/")) + attempts + F("...]"));
 
+                String host;
+                if (!parseUrlHost(url, host))
+                {
+                    error = F("bad url");
+                    code = -1;
+                    return;
+                }
+
+                IPAddress resolvedIp;
+                emitStatus(statusCb, statusCtx, statusPrefix, F("[resolving host...]"));
+                if (!resolveHost(host, resolvedIp))
+                {
+                    error = String(F("dns lookup failed: ")) + host;
+                    code = -1;
+                    return;
+                }
+
+                _logger.info(String(F("DNS ")) + host + F(" -> ") + resolvedIp.toString() +
+                             F(" via ") + WiFi.dnsIP(0).toString());
+
                 if (!http.begin(client, url))
                 {
                     error = F("http.begin failed");
@@ -378,6 +398,42 @@ private:
     {
         if (statusCb != nullptr)
             statusCb(line1, line2, statusCtx);
+    }
+
+    static bool parseUrlHost(const String &url, String &host)
+    {
+        int schemeEnd = url.indexOf("://");
+        int authorityStart = (schemeEnd >= 0) ? (schemeEnd + 3) : 0;
+        int authorityEnd = url.indexOf('/', authorityStart);
+        if (authorityEnd < 0)
+            authorityEnd = url.length();
+        if (authorityStart >= authorityEnd)
+            return false;
+
+        String authority = url.substring(authorityStart, authorityEnd);
+        authority.trim();
+        if (authority.length() == 0)
+            return false;
+
+        int colon = authority.lastIndexOf(':');
+        host = (colon >= 0) ? authority.substring(0, colon) : authority;
+
+        host.trim();
+        if (host.length() == 0)
+            return false;
+        return true;
+    }
+
+    static bool resolveHost(const String &host, IPAddress &outIp)
+    {
+        for (int i = 0; i < 2; ++i)
+        {
+            if (WiFi.hostByName(host.c_str(), outIp))
+                return true;
+            delay(50);
+            yield();
+        }
+        return false;
     }
 
     ILogger &_logger;

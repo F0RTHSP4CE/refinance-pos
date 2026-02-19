@@ -181,6 +181,8 @@ bool ensureWifi(uint32_t timeoutMs = 12000)
     WiFi.setAutoReconnect(true);
     WiFi.persistent(false);
     WiFi.setSleepMode(WIFI_NONE_SLEEP);
+    // Ensure DHCP is used for IP + DNS configuration.
+    WiFi.config(0U, 0U, 0U, 0U, 0U);
     WiFi.disconnect(true);
     delay(100);
     WiFi.begin(WIFI_SSID, WIFI_PASS);
@@ -194,7 +196,16 @@ bool ensureWifi(uint32_t timeoutMs = 12000)
     }
     if (WiFi.status() == WL_CONNECTED)
     {
+        unsigned long dnsStart = millis();
+        while (WiFi.dnsIP(0) == IPAddress((uint32_t)0) && millis() - dnsStart < 2000)
+        {
+            delay(50);
+            yield();
+        }
+
         logger.info(String("WiFi IP ") + WiFi.localIP().toString());
+        logger.info(String("DNS0 ") + WiFi.dnsIP(0).toString());
+        logger.info(String("DNS1 ") + WiFi.dnsIP(1).toString());
         display.showMessage("WiFi OK", WiFi.localIP().toString());
         delay(300);
         return true;
