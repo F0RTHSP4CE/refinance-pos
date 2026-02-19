@@ -57,6 +57,27 @@ static const uint8_t LCD_ROWS = 2;
 #define POS_ENTITY_ID 141
 #endif
 
+// HTTP robustness tuning
+#ifndef API_HTTP_TIMEOUT_MS
+#define API_HTTP_TIMEOUT_MS 8000
+#endif
+
+#ifndef API_HTTP_CONNECT_TIMEOUT_MS
+#define API_HTTP_CONNECT_TIMEOUT_MS 5000
+#endif
+
+#ifndef API_HTTP_RETRIES
+#define API_HTTP_RETRIES 2
+#endif
+
+#ifndef API_HTTP_RETRY_BACKOFF_MS
+#define API_HTTP_RETRY_BACKOFF_MS 300
+#endif
+
+#ifndef API_HTTP_RETRY_WIFI_RESET
+#define API_HTTP_RETRY_WIFI_RESET 1
+#endif
+
 // Idle screen help hints
 // Define one or more short hint lines to rotate on the first LCD line while idle.
 // POS_NAME will also be part of the rotation automatically.

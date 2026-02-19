@@ -22,6 +22,80 @@ Adafruit_NeoPixel statusStrip(STATUS_LED_STRIP_COUNT, STATUS_LED_STRIP_PIN, NEO_
 bool lastRelayActive = false;
 uint8_t lastRedLevel = 255;
 bool ledModeInitialized = false;
+bool requestInProgress = false;
+
+String requestStatusLine1;
+String requestStatusLine2Shown;
+String requestStatusLine2Pending;
+bool requestStatusLine2HasPending = false;
+
+void syncStatusStripWithRelay();
+void pumpRequestStatusDisplay();
+
+void setRequestInProgress(bool inProgress)
+{
+    if (requestInProgress == inProgress)
+        return;
+
+    requestInProgress = inProgress;
+    requestStatusLine2Pending = "";
+    requestStatusLine2Shown = "";
+    requestStatusLine2HasPending = false;
+    ledModeInitialized = false;
+}
+
+void beginRequestStatusDisplay(const String &line1)
+{
+    requestStatusLine1 = line1;
+    requestStatusLine2Shown = "";
+    requestStatusLine2Pending = "";
+    requestStatusLine2HasPending = false;
+    display.showMessage(line1, "");
+}
+
+void pumpRequestStatusDisplay()
+{
+    if (!requestInProgress || !requestStatusLine2HasPending)
+        return;
+
+    if (requestStatusLine2Shown != requestStatusLine2Pending)
+    {
+        display.printLine(requestStatusLine1, 0);
+        display.printLine(requestStatusLine2Pending, 1);
+        requestStatusLine2Shown = requestStatusLine2Pending;
+    }
+
+    requestStatusLine2HasPending = false;
+}
+
+void displayStatusCallback(const String &line1, const String &line2, void *context)
+{
+    (void)context;
+
+    if (!requestInProgress)
+    {
+        display.showMessage(line1, line2);
+        syncStatusStripWithRelay();
+        yield();
+        return;
+    }
+
+    if (requestStatusLine1 != line1)
+    {
+        requestStatusLine1 = line1;
+        display.printLine(requestStatusLine1, 0);
+    }
+
+    if (requestStatusLine2Pending != line2)
+    {
+        requestStatusLine2Pending = line2;
+        requestStatusLine2HasPending = true;
+    }
+
+    pumpRequestStatusDisplay();
+    syncStatusStripWithRelay();
+    yield();
+}
 
 // Using default global Wire instance instead of a separate TwoWire
 
@@ -57,10 +131,18 @@ void syncStatusStripWithRelay()
         return;
     }
 
+    if (requestInProgress)
+    {
+        setStatusStripColor(255, 120, 0);
+        lastRelayActive = false;
+        ledModeInitialized = true;
+        return;
+    }
+
     const uint8_t minRed = 26; // ~10% of 255
     if (state == PosState::IDLE)
     {
-        const uint32_t periodMs = 1000;
+        const uint32_t periodMs = 3000;
         uint32_t phase = millis() % periodMs;
         uint32_t halfPeriod = periodMs / 2;
         uint8_t red = 255;
@@ -98,12 +180,15 @@ bool ensureWifi(uint32_t timeoutMs = 12000)
     WiFi.mode(WIFI_STA);
     WiFi.setAutoReconnect(true);
     WiFi.persistent(false);
+    WiFi.setSleepMode(WIFI_NONE_SLEEP);
     WiFi.disconnect(true);
     delay(100);
     WiFi.begin(WIFI_SSID, WIFI_PASS);
     unsigned long start = millis();
     while (WiFi.status() != WL_CONNECTED && millis() - start < timeoutMs)
     {
+        pumpRequestStatusDisplay();
+        syncStatusStripWithRelay();
         delay(300);
         Serial.print('~');
     }
@@ -212,24 +297,8 @@ void setup()
         logger.info("PN532 init OK");
     }
     ensureWifi();
-    // DNS test for API hosts
-    IPAddress testIp;
-    if (WiFi.hostByName(String(REFINANCE_API_URL).substring(String(REFINANCE_API_URL).indexOf("//") + 2).c_str(), testIp))
-    {
-        logger.info(String("DNS REFINANCE OK ") + testIp.toString());
-    }
-    else
-    {
-        logger.error("DNS lookup failed for REFINANCE at setup");
-    }
-    if (WiFi.hostByName(String(USBUTLER_API_URL).substring(String(USBUTLER_API_URL).indexOf("//") + 2).c_str(), testIp))
-    {
-        logger.info(String("DNS USBUTLER OK ") + testIp.toString());
-    }
-    else
-    {
-        logger.error("DNS lookup failed for USBUTLER at setup");
-    }
+    WiFi.setSleepMode(WIFI_NONE_SLEEP);
+    logger.info("WiFi sleep disabled");
     api.begin();
     setState(PosState::IDLE);
     logger.info("Setup complete, entering IDLE");
@@ -249,10 +318,24 @@ void loopIdle()
 void loopCardDetected()
 {
     // Two-step auth: card UID -> USBUTLER entity -> REFINANCE POS charge
+    setRequestInProgress(true);
+    beginRequestStatusDisplay("net check");
+    displayStatusCallback("net check", "[wifi...]", nullptr);
     if (!ensureWifi())
+    {
+        setRequestInProgress(false);
+        display.showMessage("WiFi FAIL", "try again");
+        setState(PosState::ERROR_STATE);
         return;
-    display.showMessage("PROCESSING...");
-    auto r = api.authorizeByCardUID(posCtx.cardUID, posCtx.amount, posCtx.currency, POS_ENTITY_ID);
+    }
+    displayStatusCallback("auth", "[starting...]", nullptr);
+    auto r = api.authorizeByCardUID(posCtx.cardUID,
+                                    posCtx.amount,
+                                    posCtx.currency,
+                                    POS_ENTITY_ID,
+                                    displayStatusCallback,
+                                    nullptr);
+    setRequestInProgress(false);
     if (!r.ok || !r.success)
     {
         String reason = (r.error.length() > 0) ? r.error : (String("HTTP ") + r.httpCode);
@@ -341,6 +424,7 @@ void loop()
         break;
     }
     syncStatusStripWithRelay();
+    pumpRequestStatusDisplay();
     // Animate any active display effects (e.g., idle price blink)
     display.tick();
 }
