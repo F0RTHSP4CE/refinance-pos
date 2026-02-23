@@ -2,10 +2,13 @@
 #include <Arduino.h>
 
 // Pin assignments
-// D1 Mini (ESP8266) typical available GPIOs: D1=GPIO5 (SCL), D2=GPIO4 (SDA), D5=14, D6=12, D7=13, D8=15
-// Choose a safe GPIO for relay (not pulled low/high at boot). Using D5 (GPIO14).
-static const uint8_t RELAY_PIN = 14;
-static const uint8_t STATUS_LED_STRIP_PIN = D4;
+// XIAO ESP32-S3 defaults (override via build_flags if your wiring differs)
+static const uint8_t RELAY_PIN = 7;
+#if defined(PIN_NEOPIXEL)
+static const uint8_t STATUS_LED_STRIP_PIN = PIN_NEOPIXEL;
+#else
+static const uint8_t STATUS_LED_STRIP_PIN = 8;
+#endif
 static const uint8_t STATUS_LED_STRIP_COUNT = 9;
 static const uint8_t STATUS_LED_BRIGHTNESS = 64;
 
@@ -16,13 +19,13 @@ static const uint32_t DOOR_HOLD_MS = 4000;
 // Secret Network / API values are declared in secrets.h (not committed)
 #include "secrets.h" // defines WIFI_SSID, WIFI_PASS, REFINANCE_API_URL, USBUTLER_API_URL
 
-// I2C pin defaults (D1 Mini): SDA=D2(GPIO4) SCL=D1(GPIO5)
-static const uint8_t I2C_SDA = 4;
-static const uint8_t I2C_SCL = 5;
+// I2C pin defaults from board variant
+static const uint8_t I2C_SDA = SDA;
+static const uint8_t I2C_SCL = SCL;
 
-// PN532 wiring (D1 Mini). Adjust to your wiring.
-static const uint8_t PN532_IRQ_PIN = 12;   // D6 -> IRQ
-static const uint8_t PN532_RESET_PIN = 13; // D7 -> RESET
+// PN532 wiring defaults for XIAO ESP32-S3. Adjust to your wiring.
+static const uint8_t PN532_IRQ_PIN = 1;
+static const uint8_t PN532_RESET_PIN = 2;
 #ifndef PN532_IRQ
 #define PN532_IRQ PN532_IRQ_PIN
 #endif

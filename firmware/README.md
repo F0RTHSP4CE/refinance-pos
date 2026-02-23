@@ -1,7 +1,7 @@
-# D1 Mini POS Fridge Terminal
+# XIAO ESP32-S3 POS Fridge Terminal
 
 Modular embedded project for an NFC-based point-of-sale fridge lock using:
-- ESP8266 D1 Mini (Arduino framework)
+- Seeed XIAO ESP32-S3 (Arduino framework)
 - PN532 NFC reader (I2C)
 - 1602 LCD (I2C)
 - Relay driving a solenoid lock
@@ -32,8 +32,12 @@ Configuration steps:
 
 ## Building / Uploading
 Use PlatformIO:
-- Select `env:d1_mini`
+- Select `env:xiao_esp32s3` (Seeed XIAO ESP32-S3)
 - Upload & open serial monitor @115200 baud
+
+### ESP32-S3 notes
+- Default XIAO ESP32-S3 pins are set in `include/Config.h` and can be overridden via `build_flags`.
+- Verify wiring for relay and PN532 IRQ/RESET before first power-on.
 
 ## Future Improvements
 - Add retry / exponential backoff for network calls

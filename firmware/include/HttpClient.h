@@ -1,7 +1,7 @@
 #pragma once
 #include <Arduino.h>
-#include <ESP8266HTTPClient.h>
-#include <ESP8266WiFi.h>
+#include <HTTPClient.h>
+#include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <WiFiClient.h>
 #include <ArduinoJson.h>
@@ -237,7 +237,7 @@ private:
         for (int attempt = 1; attempt <= attempts; ++attempt)
         {
             HTTPClient http;
-            auto perform = [&](auto &client)
+            auto perform = [&](WiFiClient &client)
             {
                 client.setNoDelay(true);
                 client.setTimeout(API_HTTP_TIMEOUT_MS);
@@ -367,7 +367,7 @@ private:
     {
         switch (code)
         {
-        case HTTPC_ERROR_CONNECTION_FAILED:
+        case HTTPC_ERROR_CONNECTION_REFUSED:
             return F("http conn refused");
         case HTTPC_ERROR_SEND_HEADER_FAILED:
             return F("http send header failed");

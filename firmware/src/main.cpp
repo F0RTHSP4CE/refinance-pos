@@ -1,5 +1,5 @@
 #include <Arduino.h>
-#include <ESP8266WiFi.h>
+#include <WiFi.h>
 #include "Config.h"
 #include "LoggerSerial.h"
 #include <Wire.h>
@@ -180,9 +180,13 @@ bool ensureWifi(uint32_t timeoutMs = 12000)
     WiFi.mode(WIFI_STA);
     WiFi.setAutoReconnect(true);
     WiFi.persistent(false);
-    WiFi.setSleepMode(WIFI_NONE_SLEEP);
+    WiFi.setSleep(false);
     // Ensure DHCP is used for IP + DNS configuration.
-    WiFi.config(0U, 0U, 0U, 0U, 0U);
+    WiFi.config(IPAddress(0, 0, 0, 0),
+                IPAddress(0, 0, 0, 0),
+                IPAddress(0, 0, 0, 0),
+                IPAddress(0, 0, 0, 0),
+                IPAddress(0, 0, 0, 0));
     WiFi.disconnect(true);
     delay(100);
     WiFi.begin(WIFI_SSID, WIFI_PASS);
@@ -242,11 +246,10 @@ void setup()
     // Initialize I2C before any peripheral using it (start at 100k for stability)
     auto beginAndScan = [&](uint8_t sda, uint8_t scl, uint32_t freq)
     {
-        // Re-init not needed on ESP8266; just begin with desired pins
         pinMode(sda, INPUT_PULLUP);
         pinMode(scl, INPUT_PULLUP);
         delay(2);
-        Wire.begin(sda, scl); // ESP8266 path only
+        Wire.begin(sda, scl);
         Wire.setClock(freq);
         Serial.print(F("[I2C] Init SDA="));
         Serial.print(sda);
@@ -308,7 +311,7 @@ void setup()
         logger.info("PN532 init OK");
     }
     ensureWifi();
-    WiFi.setSleepMode(WIFI_NONE_SLEEP);
+    WiFi.setSleep(false);
     logger.info("WiFi sleep disabled");
     api.begin();
     setState(PosState::IDLE);
