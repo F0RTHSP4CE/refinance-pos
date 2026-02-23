@@ -47,6 +47,22 @@ static const uint8_t LCD_ROWS = 2;
 #define POS_NAME "F0 FRIDGE"
 #endif
 
+// Local network mDNS hostname (device becomes reachable as http://<POS_MDNS_HOSTNAME>.local)
+// Keep this a simple host label (letters, numbers, hyphen), without dots.
+#ifndef POS_MDNS_HOSTNAME
+#define POS_MDNS_HOSTNAME "fridge-pos"
+#endif
+
+#ifndef POS_MDNS_DOMAIN_SUFFIX
+#define POS_MDNS_DOMAIN_SUFFIX "local"
+#endif
+
+// DHCP hostname advertised to the router (usually shown in lease/client lists).
+// Keep this a host label (no dots). Defaults to the same as mDNS hostname.
+#ifndef POS_DHCP_HOSTNAME
+#define POS_DHCP_HOSTNAME POS_MDNS_HOSTNAME
+#endif
+
 // Pricing (can be overridden via build_flags e.g. -DPOS_PRICE=7.50 -DPOS_CURRENCY=\"USD\")
 #ifndef POS_PRICE
 #define POS_PRICE 5.0

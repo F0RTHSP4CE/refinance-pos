@@ -14,6 +14,12 @@ Modular embedded project for an NFC-based point-of-sale fridge lock using:
 4. On success: energizes relay (opens door) for the configured hold duration
 5. Returns to idle
 
+## Local Web Unlock
+- A simple HTTP server is exposed on the device at port `80`.
+- Open `http://<device-ip>/` or `http://<POS_MDNS_HOSTNAME>.local/` to access a Space-Invaders-style mini-game page.
+- To unlock, play as the key: move, shoot monsters, avoid enemy shots/obstacles, and reach the target score.
+- Successful validation energizes the lock for the same hold time as normal transactions (`DOOR_HOLD_MS`).
+
 
 ## Configuration
 Configuration steps:
@@ -26,6 +32,7 @@ Configuration steps:
   - RELAY_PIN
   - I2C pins
   - Timing constants
+  - POS_MDNS_HOSTNAME / POS_MDNS_DOMAIN_SUFFIX (`.local` hostname advertisement)
   - POS_PRICE / POS_CURRENCY (default price & currency charged)
   - POS_ENTITY_ID (`to_entity_id` for `/pos/charge`)
    (Can also be overridden per build using PlatformIO build_flags)
