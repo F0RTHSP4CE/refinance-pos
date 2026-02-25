@@ -40,8 +40,8 @@ struct InvadersChallenge
 
 InvadersChallenge currentChallenge;
 
-static const int WEB_GAME_TARGET_SCORE = 12;
-static const uint32_t WEB_GAME_MIN_PLAY_MS = 12000;
+static const int WEB_GAME_TARGET_SCORE = 10;
+static const uint32_t WEB_GAME_MIN_PLAY_MS = 7000;
 static const uint32_t WEB_GAME_MAX_PLAY_MS = 180000;
 
 String requestStatusLine1;
