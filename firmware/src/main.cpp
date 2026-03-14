@@ -483,6 +483,7 @@ void setupWebServer()
 
     webServer.on("/", HTTP_GET, []()
                  {
+                generateWebGameChallenge();
                 sendWebGamePage(); });
 
     webServer.on("/solve", HTTP_POST, []()
