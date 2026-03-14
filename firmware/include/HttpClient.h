@@ -55,9 +55,10 @@ public:
             String butlerPayload;
             serializeJson(butlerReq, butlerPayload);
 
-            code = postJson(String(USBUTLER_API_URL) + "/api/public/users/by-identifier",
+            code = postJson(String(USBUTLER_API_URL) + "/api/pos/users/by-identifier",
                             butlerPayload,
-                            nullptr,
+                            "X-POS-Password",
+                            POS_PASSWORD,
                             butlerDoc,
                             r.body,
                             r.error,
@@ -108,6 +109,7 @@ public:
         JsonDocument chargeDoc;
         code = postJson(String(REFINANCE_API_URL) + "/pos/charge",
                         chargePayload,
+                        "x-pos-secret",
                         POS_SECRET,
                         chargeDoc,
                         r.body,
@@ -223,7 +225,8 @@ private:
 
     int postJson(const String &url,
                  const String &payload,
-                 const char *posSecret,
+                 const char *authHeaderName,
+                 const char *authHeaderValue,
                  JsonDocument &outDoc,
                  String &responseBody,
                  String &error,
@@ -278,8 +281,8 @@ private:
                 }
 
                 http.addHeader("Content-Type", "application/json");
-                if (posSecret != nullptr)
-                    http.addHeader("x-pos-secret", posSecret);
+                if (authHeaderName != nullptr && authHeaderValue != nullptr)
+                    http.addHeader(authHeaderName, authHeaderValue);
 
 #ifdef API_HTTP_DEBUG
                 _logger.info(String(F("HTTP POST ")) + url + F(" payload=") + payload);
