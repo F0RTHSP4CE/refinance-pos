@@ -57,8 +57,8 @@ public:
 
             code = postJson(String(USBUTLER_API_URL) + "/api/pos/users/by-identifier",
                             butlerPayload,
-                            "X-POS-Password",
-                            POS_PASSWORD,
+                            "X-POS-Secret",
+                            POS_SECRET,
                             butlerDoc,
                             r.body,
                             r.error,

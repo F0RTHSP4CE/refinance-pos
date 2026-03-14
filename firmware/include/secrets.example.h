@@ -14,5 +14,3 @@ static const char *USBUTLER_API_URL = "https://usbutler.example.com";
 // Secret key for REFINANCE POS endpoint access (x-pos-secret)
 static const char *POS_SECRET = "CHANGE_ME_POS_SECRET";
 
-// Password for USBUTLER POS endpoint access (X-POS-Password)
-static const char *POS_PASSWORD = "CHANGE_ME_POS_PASSWORD";
