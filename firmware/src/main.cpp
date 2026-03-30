@@ -49,6 +49,8 @@ String requestStatusLine2Shown;
 String requestStatusLine2Pending;
 bool requestStatusLine2HasPending = false;
 
+static const char *WEB_AUTH_HEADERS[] = {"X-POS-Secret", "x-pos-secret"};
+
 void syncStatusStripWithRelay();
 void pumpRequestStatusDisplay();
 bool isManualUnlockActive();
@@ -57,6 +59,9 @@ void setupWebServer();
 void setupMdns();
 void generateWebGameChallenge();
 bool verifyWebGameChallenge();
+bool hasValidPosSecret();
+String formatAmountCompact(double value);
+bool ensureWifi(uint32_t timeoutMs = 12000);
 
 void setRequestInProgress(bool inProgress)
 {
@@ -144,22 +149,22 @@ void requestManualUnlock(uint32_t holdMs)
 void generateWebGameChallenge()
 {
     currentChallenge.token = (uint32_t)random(100000, 999999);
-        currentChallenge.issuedAt = millis();
-        currentChallenge.expiresAt = currentChallenge.issuedAt + WEB_GAME_MAX_PLAY_MS;
-        currentChallenge.consumed = false;
+    currentChallenge.issuedAt = millis();
+    currentChallenge.expiresAt = currentChallenge.issuedAt + WEB_GAME_MAX_PLAY_MS;
+    currentChallenge.consumed = false;
 }
 
 bool verifyWebGameChallenge()
 {
-        if (!webServer.hasArg("token") || !webServer.hasArg("score") || !webServer.hasArg("timeMs"))
+    if (!webServer.hasArg("token") || !webServer.hasArg("score") || !webServer.hasArg("timeMs"))
     {
         return false;
     }
 
-        if (currentChallenge.consumed)
-        {
-                return false;
-        }
+    if (currentChallenge.consumed)
+    {
+        return false;
+    }
 
     if ((long)(currentChallenge.expiresAt - millis()) <= 0)
     {
@@ -172,21 +177,43 @@ bool verifyWebGameChallenge()
         return false;
     }
 
-        int score = webServer.arg("score").toInt();
-        uint32_t timeMs = (uint32_t)webServer.arg("timeMs").toInt();
+    int score = webServer.arg("score").toInt();
+    uint32_t timeMs = (uint32_t)webServer.arg("timeMs").toInt();
 
-        if (score < WEB_GAME_TARGET_SCORE)
+    if (score < WEB_GAME_TARGET_SCORE)
+    {
+        return false;
+    }
+
+    if (timeMs < WEB_GAME_MIN_PLAY_MS || timeMs > WEB_GAME_MAX_PLAY_MS)
+    {
+        return false;
+    }
+
+    currentChallenge.consumed = true;
+    return true;
+}
+
+bool hasValidPosSecret()
+{
+    String provided;
+
+    for (size_t i = 0; i < (sizeof(WEB_AUTH_HEADERS) / sizeof(WEB_AUTH_HEADERS[0])); ++i)
+    {
+        if (webServer.hasHeader(WEB_AUTH_HEADERS[i]))
         {
-                return false;
+            provided = webServer.header(WEB_AUTH_HEADERS[i]);
+            break;
         }
+    }
 
-        if (timeMs < WEB_GAME_MIN_PLAY_MS || timeMs > WEB_GAME_MAX_PLAY_MS)
-        {
-                return false;
-        }
+    if (provided.length() == 0 && webServer.hasArg("secret"))
+    {
+        provided = webServer.arg("secret");
+    }
 
-        currentChallenge.consumed = true;
-        return true;
+    provided.trim();
+    return provided.length() > 0 && provided == POS_SECRET;
 }
 
 void sendWebGamePage()
@@ -479,7 +506,8 @@ void sendWebGamePage()
 
 void setupWebServer()
 {
-        generateWebGameChallenge();
+    webServer.collectHeaders(WEB_AUTH_HEADERS, sizeof(WEB_AUTH_HEADERS) / sizeof(WEB_AUTH_HEADERS[0]));
+    generateWebGameChallenge();
 
     webServer.on("/", HTTP_GET, []()
                  {
@@ -500,8 +528,92 @@ void setupWebServer()
                 webServer.send(403, "text/plain", "Game check failed. Try a new run."); });
 
     webServer.on("/open", HTTP_POST, []()
+                 { webServer.send(403, "text/plain", "Direct unlock disabled. Solve puzzle at /"); });
+
+    webServer.on("/remote-charge", HTTP_POST, []()
                  {
-        webServer.send(403, "text/plain", "Direct unlock disabled. Solve puzzle at /"); });
+        if (!hasValidPosSecret())
+        {
+            webServer.send(403, "application/json", "{\"ok\":false,\"error\":\"forbidden\"}");
+            return;
+        }
+
+        if (!webServer.hasArg("entity_name"))
+        {
+            webServer.send(400, "application/json", "{\"ok\":false,\"error\":\"missing entity_name\"}");
+            return;
+        }
+
+        String entityName = webServer.arg("entity_name");
+        entityName.trim();
+        if (entityName.length() == 0)
+        {
+            webServer.send(400, "application/json", "{\"ok\":false,\"error\":\"empty entity_name\"}");
+            return;
+        }
+
+        double amount = POS_PRICE;
+        if (webServer.hasArg("amount"))
+        {
+            amount = webServer.arg("amount").toDouble();
+            if (!(amount > 0.0))
+            {
+                webServer.send(400, "application/json", "{\"ok\":false,\"error\":\"invalid amount\"}");
+                return;
+            }
+        }
+
+        String currency = POS_CURRENCY;
+        if (webServer.hasArg("currency"))
+        {
+            currency = webServer.arg("currency");
+            currency.trim();
+            if (currency.length() == 0)
+            {
+                webServer.send(400, "application/json", "{\"ok\":false,\"error\":\"empty currency\"}");
+                return;
+            }
+        }
+
+        if (!ensureWifi())
+        {
+            webServer.send(503, "application/json", "{\"ok\":false,\"error\":\"wifi unavailable\"}");
+            return;
+        }
+
+        // Charge must succeed before the relay is opened.
+        setRequestInProgress(true);
+        beginRequestStatusDisplay("remote charge");
+        auto charge = api.chargeEntityByName(entityName,
+                                             amount,
+                                             currency,
+                                             POS_ENTITY_ID,
+                                             displayStatusCallback,
+                                             nullptr);
+        setRequestInProgress(false);
+
+        if (!charge.ok || !charge.success)
+        {
+            String reason = (charge.error.length() > 0) ? charge.error : (String("HTTP ") + charge.httpCode);
+            logger.warn(String("Remote charge failed for ") + entityName + ": " + reason);
+            display.showMessage("CHARGE FAILED", reason);
+            webServer.send(200,
+                           "application/json",
+                           String("{\"ok\":false,\"unlocked\":false,\"charged\":false,\"error\":\"") + reason + "\"}");
+            return;
+        }
+
+        requestManualUnlock();
+        String chargedName = charge.entityName.length() ? charge.entityName : entityName;
+        display.showMessage(String("@") + chargedName,
+                            String("-") + formatAmountCompact(amount) + " " + currency);
+
+        webServer.send(200,
+                       "application/json",
+                       String("{\"ok\":true,\"unlocked\":true,\"charged\":true,\"entity_name\":\"") +
+                           chargedName +
+                           "\",\"amount\":" + formatAmountCompact(amount) +
+                           ",\"currency\":\"" + currency + "\"}"); });
 
     webServer.onNotFound([]()
                          { webServer.send(404, "text/plain", "Not found"); });
@@ -607,7 +719,7 @@ void syncStatusStripWithRelay()
     lastRelayActive = false;
 }
 
-bool ensureWifi(uint32_t timeoutMs = 12000)
+bool ensureWifi(uint32_t timeoutMs)
 {
     if (WiFi.status() == WL_CONNECTED)
         return true;
@@ -775,7 +887,7 @@ void loopIdle()
 
 void loopCardDetected()
 {
-    // Two-step auth: card UID -> USBUTLER entity -> REFINANCE POS charge
+    // Step 1: verify card is known (cache or USBUTLER) before unlocking.
     setRequestInProgress(true);
     beginRequestStatusDisplay("net check");
     displayStatusCallback("net check", "[wifi...]", nullptr);
@@ -786,39 +898,76 @@ void loopCardDetected()
         setState(PosState::ERROR_STATE);
         return;
     }
-    displayStatusCallback("auth", "[starting...]", nullptr);
-    auto r = api.authorizeByCardUID(posCtx.cardUID,
-                                    posCtx.amount,
-                                    posCtx.currency,
-                                    POS_ENTITY_ID,
-                                    displayStatusCallback,
-                                    nullptr);
+    displayStatusCallback("card lookup", "[starting...]", nullptr);
+    auto lookup = api.lookupEntityByCardUID(posCtx.cardUID,
+                                            displayStatusCallback,
+                                            nullptr);
     setRequestInProgress(false);
-    if (!r.ok || !r.success)
+    if (!lookup.ok || !lookup.success)
     {
-        String reason = (r.error.length() > 0) ? r.error : (String("HTTP ") + r.httpCode);
-        display.showMessage(String("PAYMENT FAILED"), reason);
+        String reason = (lookup.error.length() > 0) ? lookup.error : (String("HTTP ") + lookup.httpCode);
+        display.showMessage(String("CARD UNKNOWN"), reason);
         setState(PosState::ERROR_STATE);
         display.blink(3, 250);
         return;
     }
-    posCtx.meId = r.entityId;
-    posCtx.payerName = r.entityName;
-    posCtx.balancePrefetched = r.balanceAvailable;
-    posCtx.balanceCompleted = r.balanceCompleted;
-    posCtx.balanceDraft = r.balanceDraft;
-    display.showMessage(String("@") + posCtx.payerName, String("-") + formatAmountCompact(posCtx.amount) + " " + posCtx.currency);
+
+    posCtx.meId = "";
+    posCtx.payerName = lookup.entityName;
+    posCtx.balancePrefetched = false;
+    posCtx.balanceCompleted = 0;
+    posCtx.balanceDraft = 0;
+    posCtx.chargeAttempted = false;
+    posCtx.chargeSucceeded = false;
+    posCtx.chargeError = "";
+
+    display.showMessage(String("@") + posCtx.payerName, "OPENING...");
     setState(PosState::TRANSACTION_OK);
 }
 
 void loopTransactionOk()
 {
+    // Keep door open immediately once a known card is validated.
+    lockCtrl.open();
+
+    // Step 2: after door opened, attempt charge request once.
+    if (!posCtx.chargeAttempted)
+    {
+        posCtx.chargeAttempted = true;
+        setRequestInProgress(true);
+        beginRequestStatusDisplay("charge");
+        auto charge = api.chargeEntityByName(posCtx.payerName,
+                                             posCtx.amount,
+                                             posCtx.currency,
+                                             POS_ENTITY_ID,
+                                             displayStatusCallback,
+                                             nullptr);
+        setRequestInProgress(false);
+
+        if (charge.ok && charge.success)
+        {
+            posCtx.chargeSucceeded = true;
+            posCtx.meId = charge.entityId;
+            posCtx.balancePrefetched = charge.balanceAvailable;
+            posCtx.balanceCompleted = charge.balanceCompleted;
+            posCtx.balanceDraft = charge.balanceDraft;
+            display.showMessage(String("@") + posCtx.payerName,
+                                String("-") + formatAmountCompact(posCtx.amount) + " " + posCtx.currency);
+        }
+        else
+        {
+            posCtx.chargeSucceeded = false;
+            posCtx.chargeError = (charge.error.length() > 0) ? charge.error : (String("HTTP ") + charge.httpCode);
+            logger.warn(String("Charge failed for known card: ") + posCtx.chargeError);
+            display.showMessage(String("OPEN @") + posCtx.payerName, "CHARGE FAILED");
+        }
+    }
+
     if (millis() - posCtx.stateSince < DOOR_HOLD_MS)
     {
-        lockCtrl.open();
         if (millis() - posCtx.stateSince > 2000)
-        { // fetch balance once
-            if (posCtx.balancePrefetched)
+        {
+            if (posCtx.chargeSucceeded && posCtx.balancePrefetched)
             {
                 display.showMessage(String("Balance:"), String(posCtx.balanceCompleted) + " " + posCtx.currency);
                 setState(PosState::SHOW_BALANCE);

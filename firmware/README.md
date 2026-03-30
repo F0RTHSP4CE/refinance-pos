@@ -20,6 +20,18 @@ Modular embedded project for an NFC-based point-of-sale fridge lock using:
 - To unlock, play as the key: move, shoot monsters, avoid enemy shots/obstacles, and reach the target score.
 - Successful validation energizes the lock for the same hold time as normal transactions (`DOOR_HOLD_MS`).
 
+## Remote Charge Endpoint
+The device exposes a remote charging endpoint for controlled unlocks without NFC.
+
+- Route: `POST /remote-charge`
+- Auth: send POS secret in header `X-POS-Secret` (or `x-pos-secret`).
+  - Fallback is supported via `secret` request parameter.
+- Required parameter:
+  - `entity_name` (string)
+- Optional parameters:
+  - `amount` (number, defaults to `POS_PRICE`)
+  - `currency` (string, defaults to `POS_CURRENCY`)
+
 
 ## Configuration
 Configuration steps:

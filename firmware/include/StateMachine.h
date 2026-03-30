@@ -24,4 +24,7 @@ struct PosContext
     bool balancePrefetched = false;
     double balanceCompleted = 0;
     double balanceDraft = 0;
+    bool chargeAttempted = false;
+    bool chargeSucceeded = false;
+    String chargeError;
 };

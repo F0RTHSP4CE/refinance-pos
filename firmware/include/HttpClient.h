@@ -8,7 +8,18 @@
 #include "ILogger.h"
 #include "Config.h"
 
-struct AuthLookupResult
+struct CardLookupResult
+{
+    bool ok = false;
+    bool success = false;
+    bool fromCache = false;
+    String entityName;
+    int httpCode = 0;
+    String body;
+    String error;
+};
+
+struct ChargeResult
 {
     bool ok = false;
     bool success = false;
@@ -31,31 +42,35 @@ public:
 
     bool begin() { return true; }
 
-    AuthLookupResult authorizeByCardUID(const String &cardUID,
-                                        double amount,
-                                        const String &currency,
-                                        int toEntityId,
-                                        StatusCallback statusCb = nullptr,
-                                        void *statusCtx = nullptr)
+    CardLookupResult lookupEntityByCardUID(const String &cardUID,
+                                           StatusCallback statusCb = nullptr,
+                                           void *statusCtx = nullptr)
     {
-        AuthLookupResult r;
+        CardLookupResult r;
         String entityName;
         bool fromCache = lookupCachedEntityName(cardUID, entityName);
-        int code = 0;
 
         emitStatus(statusCb, statusCtx, F("auth"), F("[card detected...]"));
 
-        if (!fromCache)
+        if (fromCache)
         {
-            emitStatus(statusCb, statusCtx, F("card lookup"), F("[usbutler...]"));
+            emitStatus(statusCb, statusCtx, F("card lookup"), F("[cache hit...]"));
+            r.ok = true;
+            r.success = true;
+            r.fromCache = true;
+            r.entityName = entityName;
+            return r;
+        }
 
-            JsonDocument butlerDoc;
-            JsonDocument butlerReq;
-            butlerReq["value"] = cardUID;
-            String butlerPayload;
-            serializeJson(butlerReq, butlerPayload);
+        emitStatus(statusCb, statusCtx, F("card lookup"), F("[usbutler...]"));
 
-            code = postJson(String(USBUTLER_API_URL) + "/api/pos/users/by-identifier",
+        JsonDocument butlerDoc;
+        JsonDocument butlerReq;
+        butlerReq["value"] = cardUID;
+        String butlerPayload;
+        serializeJson(butlerReq, butlerPayload);
+
+        int code = postJson(String(USBUTLER_API_URL) + "/api/pos/users/by-identifier",
                             butlerPayload,
                             "X-POS-Secret",
                             POS_SECRET,
@@ -65,35 +80,43 @@ public:
                             F("lookup"),
                             statusCb,
                             statusCtx);
-            r.httpCode = code;
-            if (code != 200)
-                return r;
+        r.httpCode = code;
+        if (code != 200)
+            return r;
 
-            entityName = firstNonEmpty({
-                butlerDoc["entity_name"],
-                butlerDoc["data"]["entity_name"],
-                butlerDoc["entity"]["name"],
-                butlerDoc["data"]["entity"]["name"],
-                butlerDoc["name"],
-                butlerDoc["data"]["name"],
-                butlerDoc["user"]["name"],
-                butlerDoc["identifier"],
-                butlerDoc["user"]["identifier"],
-                butlerDoc["username"],
-                butlerDoc["user"]["username"]});
+        entityName = firstNonEmpty({butlerDoc["entity_name"],
+                                    butlerDoc["data"]["entity_name"],
+                                    butlerDoc["entity"]["name"],
+                                    butlerDoc["data"]["entity"]["name"],
+                                    butlerDoc["name"],
+                                    butlerDoc["data"]["name"],
+                                    butlerDoc["user"]["name"],
+                                    butlerDoc["identifier"],
+                                    butlerDoc["user"]["identifier"],
+                                    butlerDoc["username"],
+                                    butlerDoc["user"]["username"]});
 
-            if (entityName.length() == 0)
-            {
-                r.error = F("usbutler response missing entity_name");
-                return r;
-            }
-
-            cacheEntityName(cardUID, entityName);
-        }
-        else
+        if (entityName.length() == 0)
         {
-            emitStatus(statusCb, statusCtx, F("card lookup"), F("[cache hit...]"));
+            r.error = F("usbutler response missing entity_name");
+            return r;
         }
+
+        cacheEntityName(cardUID, entityName);
+        r.entityName = entityName;
+        r.ok = true;
+        r.success = true;
+        return r;
+    }
+
+    ChargeResult chargeEntityByName(const String &entityName,
+                                    double amount,
+                                    const String &currency,
+                                    int toEntityId,
+                                    StatusCallback statusCb = nullptr,
+                                    void *statusCtx = nullptr)
+    {
+        ChargeResult r;
 
         emitStatus(statusCb, statusCtx, F("charge"), F("[preparing...]"));
 
@@ -107,33 +130,31 @@ public:
         serializeJson(chargeReq, chargePayload);
 
         JsonDocument chargeDoc;
-        code = postJson(String(REFINANCE_API_URL) + "/pos/charge",
-                        chargePayload,
-                        "x-pos-secret",
-                        POS_SECRET,
-                        chargeDoc,
-                        r.body,
-                        r.error,
-                        F("charge"),
-                        statusCb,
-                        statusCtx);
+        int code = postJson(String(REFINANCE_API_URL) + "/pos/charge",
+                            chargePayload,
+                            "x-pos-secret",
+                            POS_SECRET,
+                            chargeDoc,
+                            r.body,
+                            r.error,
+                            F("charge"),
+                            statusCb,
+                            statusCtx);
         r.httpCode = code;
         if (code != 200)
             return r;
 
-        r.entityName = firstNonEmpty({
-            chargeDoc["entity"]["name"],
-            chargeDoc["data"]["entity"]["name"],
-            chargeDoc["name"],
-            chargeDoc["data"]["name"]});
+        r.entityName = firstNonEmpty({chargeDoc["entity"]["name"],
+                                      chargeDoc["data"]["entity"]["name"],
+                                      chargeDoc["name"],
+                                      chargeDoc["data"]["name"]});
         if (r.entityName.length() == 0)
             r.entityName = entityName;
 
-        r.entityId = firstNonEmpty({
-            chargeDoc["entity"]["id"],
-            chargeDoc["data"]["entity"]["id"],
-            chargeDoc["id"],
-            chargeDoc["data"]["id"]});
+        r.entityId = firstNonEmpty({chargeDoc["entity"]["id"],
+                                    chargeDoc["data"]["entity"]["id"],
+                                    chargeDoc["id"],
+                                    chargeDoc["data"]["id"]});
 
         JsonVariantConst balance = chargeDoc["balance"];
         r.balanceAvailable = !balance.isNull();
