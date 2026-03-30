@@ -599,7 +599,10 @@ void setupWebServer()
             display.showMessage("CHARGE FAILED", reason);
             webServer.send(200,
                            "application/json",
-                           String("{\"ok\":false,\"unlocked\":false,\"charged\":false,\"error\":\"") + reason + "\"}");
+                           String("{\"ok\":false,\"unlocked\":false,\"charged\":false,\"amount\":") +
+                               formatAmountCompact(amount) +
+                               ",\"currency\":\"" + currency +
+                               "\",\"error\":\"" + reason + "\"}");
             return;
         }
 
@@ -613,7 +616,9 @@ void setupWebServer()
                        String("{\"ok\":true,\"unlocked\":true,\"charged\":true,\"entity_name\":\"") +
                            chargedName +
                            "\",\"amount\":" + formatAmountCompact(amount) +
-                           ",\"currency\":\"" + currency + "\"}"); });
+                           ",\"currency\":\"" + currency +
+                           "\",\"balance_completed\":" + String(charge.balanceCompleted) +
+                           ",\"balance_draft\":" + String(charge.balanceDraft) + "}"); });
 
     webServer.onNotFound([]()
                          { webServer.send(404, "text/plain", "Not found"); });

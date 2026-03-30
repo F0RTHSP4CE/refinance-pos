@@ -32,6 +32,27 @@ The device exposes a remote charging endpoint for controlled unlocks without NFC
   - `amount` (number, defaults to `POS_PRICE`)
   - `currency` (string, defaults to `POS_CURRENCY`)
 
+Behavior:
+1. Validates auth and input.
+2. Ensures WiFi is connected.
+3. Sends charge request to `REFINANCE_API_URL/pos/charge`.
+4. Opens relay only if charge succeeds.
+
+Response summary:
+- On success: HTTP `200` with JSON:
+  ```json
+  {"ok":true,"unlocked":true,"charged":true,"entity_name":"...","amount":5,"currency":"GEL","balance_completed":12.5,"balance_draft":5}
+  ```
+- On charge failure: HTTP `200` with JSON:
+  ```json
+  {"ok":false,"unlocked":false,"charged":false,"amount":5,"currency":"GEL","error":"..."}
+  ```
+- On invalid auth: HTTP `403`.
+- On bad input: HTTP `400`.
+
+All responses include `amount` and `currency`. Success responses additionally contain `entity_name`, `balance_completed`, and `balance_draft`.
+
+
 
 ## Configuration
 Configuration steps:
