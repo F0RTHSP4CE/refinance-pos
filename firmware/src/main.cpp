@@ -41,6 +41,7 @@ void syncStatusLed();
 void pumpRequestStatusDisplay();
 bool isManualUnlockActive();
 void requestManualUnlock(uint32_t holdMs = DOOR_HOLD_MS);
+void setState(PosState s);
 void setupWebServer();
 void setupMdns();
 bool hasValidPosSecret();
@@ -257,6 +258,7 @@ void setupWebServer()
             String reason = (charge.error.length() > 0) ? charge.error : (String("HTTP ") + charge.httpCode);
             logger.warn(String("Remote charge failed for ") + entityName + ": " + reason);
             display.showMessage(charge.errorCode == 10001 ? "X UNPAID INVOICE" : "CHARGE FAILED", reason);
+            setState(PosState::ERROR_STATE);
             webServer.send(200,
                            "application/json",
                            String("{\"ok\":false,\"unlocked\":false,\"charged\":false,\"amount\":") +
