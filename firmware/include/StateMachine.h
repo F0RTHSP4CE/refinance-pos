@@ -26,5 +26,6 @@ struct PosContext
     double balanceDraft = 0;
     bool chargeAttempted = false;
     bool chargeSucceeded = false;
+    bool chargePreAuthorized = false; // true if last charge for this UID succeeded (fast-open path)
     String chargeError;
 };

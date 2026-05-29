@@ -515,7 +515,12 @@ void loopCardDetected()
         return;
     }
 
-    statusLed.setColor(0, 255, 0); // card known → green
+    // On the fast path the door is about to open → show green immediately.
+    // On the slow path wait until charge succeeds; let sync() drive orange during the request.
+    if (api.isChargeSuccessCached(posCtx.cardUID))
+        statusLed.setColor(0, 255, 0); // card known + pre-authorized → green
+    else
+        statusLed.invalidate(); // let sync() show orange while charging
 
     posCtx.meId = "";
     posCtx.payerName = lookup.entityName;
@@ -524,18 +529,26 @@ void loopCardDetected()
     posCtx.balanceDraft = 0;
     posCtx.chargeAttempted = false;
     posCtx.chargeSucceeded = false;
+    posCtx.chargePreAuthorized = api.isChargeSuccessCached(posCtx.cardUID);
     posCtx.chargeError = "";
 
-    display.showMessage(String("@") + posCtx.payerName, "OPENING...");
+    if (posCtx.chargePreAuthorized)
+        display.showMessage(String("@") + posCtx.payerName, "OPENING...");
+    else
+        display.showMessage(String("@") + posCtx.payerName, "");
     setState(PosState::TRANSACTION_OK);
 }
 
 void loopTransactionOk()
 {
-    // Keep door open immediately once a known card is validated.
-    lockCtrl.open();
+    // Pre-authorized path: previous charge succeeded → open door immediately while we charge.
+    // Non-pre-authorized path: charge must succeed first, then open door.
+    if (posCtx.chargePreAuthorized || posCtx.chargeSucceeded)
+    {
+        lockCtrl.open();
+    }
 
-    // Step 2: after door opened, attempt charge request once.
+    // Attempt charge exactly once.
     if (!posCtx.chargeAttempted)
     {
         posCtx.chargeAttempted = true;
@@ -556,6 +569,15 @@ void loopTransactionOk()
             posCtx.balancePrefetched = charge.balanceAvailable;
             posCtx.balanceCompleted = charge.balanceCompleted;
             posCtx.balanceDraft = charge.balanceDraft;
+            api.addChargeSuccessCache(posCtx.cardUID);
+
+            if (!posCtx.chargePreAuthorized)
+            {
+                // First successful charge for this UID: open door now, reset hold timer.
+                lockCtrl.open();
+                posCtx.stateSince = millis();
+            }
+
             display.showMessage(String("@") + posCtx.payerName,
                                 String("-") + formatAmountCompact(posCtx.amount) + " " + posCtx.currency);
             statusLed.setColor(0, 255, 0); // charge ok → green
@@ -565,23 +587,35 @@ void loopTransactionOk()
             posCtx.chargeSucceeded = false;
             posCtx.chargeError = (charge.error.length() > 0) ? charge.error : (String("HTTP ") + charge.httpCode);
             logger.warn(String("Charge failed for known card: ") + posCtx.chargeError);
-            display.showMessage(String("OPEN @") + posCtx.payerName, charge.errorCode == 10001 ? "X UNPAID INVOICE" : "CHARGE FAILED");
-            statusLed.blinkError();
+            api.removeChargeSuccessCache(posCtx.cardUID);
 
-            // Rapidly toggle relay 5 times while blinking red
-            const int buzzCount = 5;
-            const uint32_t buzzOnMs = 150;
-            const uint32_t buzzOffMs = 150;
-            for (int i = 0; i < buzzCount; i++)
+            if (posCtx.chargePreAuthorized)
             {
-                lockCtrl.open();
-                syncStatusLed();
-                delay(buzzOnMs);
+                // Door was already open; show error and buzz to indicate failure.
+                display.showMessage(String("OPEN @") + posCtx.payerName, charge.errorCode == 10001 ? "X UNPAID INVOICE" : "CHARGE FAILED");
+                statusLed.blinkError();
+
+                const int buzzCount = 5;
+                const uint32_t buzzOnMs = 150;
+                const uint32_t buzzOffMs = 150;
+                for (int i = 0; i < buzzCount; i++)
+                {
+                    lockCtrl.open();
+                    syncStatusLed();
+                    delay(buzzOnMs);
+                    lockCtrl.close();
+                    syncStatusLed();
+                    delay(buzzOffMs);
+                }
                 lockCtrl.close();
-                syncStatusLed();
-                delay(buzzOffMs);
             }
-            lockCtrl.close();
+            else
+            {
+                // Door was never opened; just show the error.
+                display.showMessage(charge.errorCode == 10001 ? "X UNPAID INVOICE" : "CHARGE FAILED", posCtx.chargeError);
+                statusLed.blinkError();
+            }
+
             setState(PosState::ERROR_STATE);
             return;
         }

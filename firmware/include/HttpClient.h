@@ -110,6 +110,41 @@ public:
         return r;
     }
 
+    bool isChargeSuccessCached(const String &cardUID)
+    {
+        for (size_t i = 0; i < UID_CHARGE_CACHE_SIZE; ++i)
+        {
+            if (_uidChargeCache[i].valid && _uidChargeCache[i].cardUID == cardUID)
+                return true;
+        }
+        return false;
+    }
+
+    void addChargeSuccessCache(const String &cardUID)
+    {
+        for (size_t i = 0; i < UID_CHARGE_CACHE_SIZE; ++i)
+        {
+            if (_uidChargeCache[i].valid && _uidChargeCache[i].cardUID == cardUID)
+                return; // already present
+        }
+        _uidChargeCache[_uidChargeCacheNext].cardUID = cardUID;
+        _uidChargeCache[_uidChargeCacheNext].valid = true;
+        _uidChargeCacheNext = (_uidChargeCacheNext + 1) % UID_CHARGE_CACHE_SIZE;
+    }
+
+    void removeChargeSuccessCache(const String &cardUID)
+    {
+        for (size_t i = 0; i < UID_CHARGE_CACHE_SIZE; ++i)
+        {
+            if (_uidChargeCache[i].valid && _uidChargeCache[i].cardUID == cardUID)
+            {
+                _uidChargeCache[i].valid = false;
+                _uidChargeCache[i].cardUID = String();
+                return;
+            }
+        }
+    }
+
     ChargeResult chargeEntityByName(const String &entityName,
                                     double amount,
                                     const String &currency,
@@ -474,7 +509,17 @@ private:
         return false;
     }
 
+    static constexpr size_t UID_CHARGE_CACHE_SIZE = 12;
+
+    struct UidChargeCacheEntry
+    {
+        String cardUID;
+        bool valid = false;
+    };
+
     ILogger &_logger;
     UidNameCacheEntry _uidNameCache[UID_NAME_CACHE_SIZE];
     size_t _uidNameCacheNext = 0;
+    UidChargeCacheEntry _uidChargeCache[UID_CHARGE_CACHE_SIZE];
+    size_t _uidChargeCacheNext = 0;
 };
