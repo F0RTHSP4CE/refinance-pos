@@ -1,12 +1,14 @@
 #pragma once
 #include <Arduino.h>
 #include <WebServer.h>
+#include <mbedtls/sha256.h>
 #include "Config.h"
 
 class WebGame
 {
 public:
-    static const int TARGET_SCORE = 10;
+    static const int TARGET_SCORE = 24;
+    static const int POW_DIFFICULTY = 22;
 
     void generateChallenge()
     {
@@ -19,7 +21,7 @@ public:
     /// Verify a solution submitted via POST form args on the given WebServer.
     bool verifySolution(WebServer &server)
     {
-        if (!server.hasArg("token") || !server.hasArg("score") || !server.hasArg("timeMs"))
+        if (!server.hasArg("token") || !server.hasArg("score") || !server.hasArg("timeMs") || !server.hasArg("nonce"))
             return false;
         if (_consumed)
             return false;
@@ -32,6 +34,9 @@ public:
         if (score < TARGET_SCORE)
             return false;
         if (timeMs < MIN_PLAY_MS || timeMs > MAX_PLAY_MS)
+            return false;
+        uint32_t nonce = (uint32_t)server.arg("nonce").toInt();
+        if (!_verifyPoW(nonce))
             return false;
         _consumed = true;
         return true;
@@ -56,7 +61,9 @@ public:
 
         static const char PAGE_AFTER_TOKEN[] PROGMEM = R"HTML(' data-target=')HTML";
 
-        static const char PAGE_AFTER_TARGET[] PROGMEM = R"HTML('>
+        static const char PAGE_AFTER_TARGET[] PROGMEM = R"HTML(' data-pow=')HTML";
+
+        static const char PAGE_AFTER_POW[] PROGMEM = R"HTML('>
     <h2 id='title' style='margin:.2rem 0 0 0;'></h2>
     <p>Status: )HTML";
 
@@ -77,6 +84,7 @@ public:
     const posName = document.body.dataset.name || 'POS';
     const token = document.body.dataset.token || '';
     const targetScore = Number(document.body.dataset.target || '12');
+    const powDifficulty = Number(document.body.dataset.pow || '20');
     const canvas = document.getElementById('game');
     const ctx = canvas.getContext('2d');
     const hud = document.getElementById('hud');
@@ -144,23 +152,52 @@ public:
         return false;
     }
 
+    // Compact pure-JS SHA-256 (ASCII input only).
+    function sha256hex(s){var rr=function(n,x){return(n>>>x)|(n<<(32-x));};var K=[0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2];var H=[0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19];var bytes=[];for(var i=0;i<s.length;i++)bytes.push(s.charCodeAt(i));bytes.push(0x80);while(bytes.length%64!==56)bytes.push(0);var bl=s.length*8;bytes.push(0,0,0,0,(bl>>>24)&0xff,(bl>>>16)&0xff,(bl>>>8)&0xff,bl&0xff);for(var i=0;i<bytes.length;i+=64){var w=[];for(var j=0;j<16;j++)w.push((bytes[i+j*4]<<24)|(bytes[i+j*4+1]<<16)|(bytes[i+j*4+2]<<8)|bytes[i+j*4+3]);for(var j=16;j<64;j++){var s0=rr(w[j-15],7)^rr(w[j-15],18)^(w[j-15]>>>3);var s1=rr(w[j-2],17)^rr(w[j-2],19)^(w[j-2]>>>10);w.push((w[j-16]+s0+w[j-7]+s1)|0);}var a=H[0],b=H[1],c=H[2],d=H[3],e=H[4],f=H[5],g=H[6],h=H[7];for(var j=0;j<64;j++){var S1=rr(e,6)^rr(e,11)^rr(e,25);var ch=(e&f)^(~e&g);var t1=(h+S1+ch+K[j]+w[j])|0;var S0=rr(a,2)^rr(a,13)^rr(a,22);var maj=(a&b)^(a&c)^(b&c);var t2=(S0+maj)|0;h=g;g=f;f=e;e=(d+t1)|0;d=c;c=b;b=a;a=(t1+t2)|0;}H[0]=(H[0]+a)|0;H[1]=(H[1]+b)|0;H[2]=(H[2]+c)|0;H[3]=(H[3]+d)|0;H[4]=(H[4]+e)|0;H[5]=(H[5]+f)|0;H[6]=(H[6]+g)|0;H[7]=(H[7]+h)|0;}return H.map(function(x){return('00000000'+((x>>>0).toString(16))).slice(-8);}).join('');}
+
+    // Proof-of-work: find nonce where SHA256("<token_hex8>:<nonce>") has powDifficulty leading zero bits.
+    // Solved in background chunks so the game UI stays responsive.
+    function powCheck(h){var fn=powDifficulty>>2,rb=powDifficulty&3;for(var i=0;i<fn;i++)if(h[i]!=='0')return false;return rb===0||(parseInt(h[fn],16)>>>(4-rb))===0;}
+    var _powNonce = -1, _powDone = false, _powWait = [];
+    (function(){
+        var challenge = ('00000000' + (Number(token) >>> 0).toString(16)).slice(-8);
+        var nonce = 0;
+        function step(){
+            for(var end = nonce + 500; nonce < end; nonce++){
+                var h = sha256hex(challenge + ':' + nonce);
+                if(powCheck(h)){
+                    _powNonce = nonce; _powDone = true;
+                    _powWait.forEach(function(fn){fn();}); _powWait = [];
+                    return;
+                }
+            }
+            setTimeout(step, 0);
+        }
+        step();
+    })();
+
     function submitWin() {
         const elapsed = Date.now() - state.startMs;
-        const body = new URLSearchParams();
-        body.set('token', token);
-        body.set('score', String(state.score));
-        body.set('timeMs', String(elapsed));
-
-        fetch('/solve', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-            body: body.toString(),
-        }).then(async (res) => {
-            const txt = await res.text();
-            msg.textContent = txt;
-        }).catch(() => {
-            msg.textContent = 'Network error while submitting score.';
-        });
+        msg.textContent = 'Target score reached. Computing proof-of-work...';
+        function doSubmit() {
+            const body = new URLSearchParams();
+            body.set('token', token);
+            body.set('score', String(state.score));
+            body.set('timeMs', String(elapsed));
+            body.set('nonce', String(_powNonce));
+            fetch('/solve', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                body: body.toString(),
+            }).then(async (res) => {
+                const txt = await res.text();
+                msg.textContent = txt;
+            }).catch(() => {
+                msg.textContent = 'Network error while submitting score.';
+            });
+        }
+        if (_powDone) doSubmit();
+        else _powWait.push(doSubmit);
     }
 
     function update() {
@@ -321,6 +358,8 @@ public:
         server.sendContent_P(PAGE_AFTER_TOKEN);
         server.sendContent(String(TARGET_SCORE));
         server.sendContent_P(PAGE_AFTER_TARGET);
+        server.sendContent(String(POW_DIFFICULTY));
+        server.sendContent_P(PAGE_AFTER_POW);
         server.sendContent(doorOpen ? "OPEN" : "CLOSED");
         server.sendContent_P(PAGE_REST);
         server.sendContent("");
@@ -334,4 +373,23 @@ private:
     unsigned long _issuedAt = 0;
     unsigned long _expiresAt = 0;
     bool _consumed = false;
+
+    /// Verify SHA-256 proof-of-work: SHA256("<token_hex8>:<nonce>") must have POW_DIFFICULTY leading zero bits.
+    bool _verifyPoW(uint32_t nonce) const
+    {
+        char input[32];
+        snprintf(input, sizeof(input), "%08x:%u", (unsigned)_token, (unsigned)nonce);
+        uint8_t hash[32];
+        mbedtls_sha256((const uint8_t *)input, strlen(input), hash, 0);
+        int bits = POW_DIFFICULTY;
+        for (int i = 0; i < 32 && bits > 0; i++)
+        {
+            int check = bits >= 8 ? 8 : bits;
+            uint8_t mask = (uint8_t)(0xFF << (8 - check));
+            if (hash[i] & mask)
+                return false;
+            bits -= check;
+        }
+        return true;
+    }
 };

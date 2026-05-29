@@ -256,7 +256,7 @@ void setupWebServer()
         {
             String reason = (charge.error.length() > 0) ? charge.error : (String("HTTP ") + charge.httpCode);
             logger.warn(String("Remote charge failed for ") + entityName + ": " + reason);
-            display.showMessage("CHARGE FAILED", reason);
+            display.showMessage(charge.errorCode == 10001 ? "X UNPAID INVOICE" : "CHARGE FAILED", reason);
             webServer.send(200,
                            "application/json",
                            String("{\"ok\":false,\"unlocked\":false,\"charged\":false,\"amount\":") +
@@ -562,7 +562,7 @@ void loopTransactionOk()
             posCtx.chargeSucceeded = false;
             posCtx.chargeError = (charge.error.length() > 0) ? charge.error : (String("HTTP ") + charge.httpCode);
             logger.warn(String("Charge failed for known card: ") + posCtx.chargeError);
-            display.showMessage(String("OPEN @") + posCtx.payerName, "CHARGE FAILED");
+            display.showMessage(String("OPEN @") + posCtx.payerName, charge.errorCode == 10001 ? "X UNPAID INVOICE" : "CHARGE FAILED");
             statusLed.blinkError();
 
             // Rapidly toggle relay 5 times while blinking red

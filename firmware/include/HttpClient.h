@@ -29,6 +29,7 @@ struct ChargeResult
     double balanceCompleted = 0;
     double balanceDraft = 0;
     int httpCode = 0;
+    int errorCode = 0;
     String body;
     String error;
 };
@@ -142,7 +143,15 @@ public:
                             statusCtx);
         r.httpCode = code;
         if (code != 200)
+        {
+            if (code == 418 && r.body.length() > 0)
+            {
+                JsonDocument errDoc;
+                if (!deserializeJson(errDoc, r.body))
+                    r.errorCode = errDoc["error_code"] | 0;
+            }
             return r;
+        }
 
         r.entityName = firstNonEmpty({chargeDoc["entity"]["name"],
                                       chargeDoc["data"]["entity"]["name"],
