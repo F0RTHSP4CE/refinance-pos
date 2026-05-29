@@ -148,7 +148,12 @@ public:
             {
                 JsonDocument errDoc;
                 if (!deserializeJson(errDoc, r.body))
+                {
                     r.errorCode = errDoc["error_code"] | 0;
+                    String apiError = errDoc["error"] | String();
+                    if (apiError.length() > 0)
+                        r.error = apiError;
+                }
             }
             return r;
         }

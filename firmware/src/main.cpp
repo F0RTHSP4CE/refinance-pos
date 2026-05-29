@@ -261,8 +261,9 @@ void setupWebServer()
                            "application/json",
                            String("{\"ok\":false,\"unlocked\":false,\"charged\":false,\"amount\":") +
                                formatAmountCompact(amount) +
-                               ",\"currency\":\"" + currency +
-                               "\",\"error\":\"" + reason + "\"}");
+                               ",\"currency\":\"" + currency + "\"" +
+                               (charge.errorCode != 0 ? String(",\"error_code\":") + charge.errorCode : String()) +
+                               ",\"error\":\"" + reason + "\"}");
             return;
         }
 
