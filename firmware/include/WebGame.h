@@ -76,7 +76,8 @@ public:
         <button id='rightBtn' style='flex:1;padding:.85rem;font-size:1rem;background:#000;color:#fff;border:1px solid #fff;'>&rarr;</button>
     </div>
     <p id='hud' style='max-width:360px;margin:0.6rem auto 0 auto;'>Score: 0</p>
-    <p id='msg' style='max-width:360px;min-height:1.5rem;margin:0.3rem auto 0 auto;'></p>
+    <p id='lockMsg' style='max-width:360px;min-height:1.5rem;margin:0.3rem auto 0 auto;font-size:1.5rem;font-weight:bold;text-align:center;padding:0.5rem 0.6rem;display:none;'></p>
+    <p id='msg' style='max-width:360px;min-height:1.5rem;margin:0.3rem auto 0 auto;white-space:pre-line;background:#fff;color:#000;padding:0.4rem 0.6rem;'></p>
     <p style='opacity:.85;font-size:.92rem;max-width:360px;margin-left:auto;margin-right:auto;'>Avoid monsters and enemy shots. Refresh for a fresh run.</p>
 
 <script>
@@ -89,6 +90,27 @@ public:
     const ctx = canvas.getContext('2d');
     const hud = document.getElementById('hud');
     const msg = document.getElementById('msg');
+    const lockMsg = document.getElementById('lockMsg');
+    const MSGS = [
+        "maybe it's time to find a job",
+        "is it worth your time?",
+        "this snack is not free.",
+        "i hope you are doing well",
+        "hackers should hack their way to success",
+        "cmon, what are you doing?",
+        "this game is not an excuse for not paying, it's a tool to open the fridge in emergency.",
+        "the complexity of this game will increase over time. find a better way.",
+        "more you play = more you pay later.",
+        "better than a debt, init?",
+        "give it a taste, pleasant?",
+        "why pay when you can play... yes?",
+        "linkedin.com",
+        "send your cv already.",
+        "MONEY MONEY MONEY BITCH. WHERE? it's not free.",
+        "economy needs economy.",
+        "save your time, use an NFC card next time. time is precious.",
+    ];
+    function randomMsg() { return MSGS[(Math.random() * MSGS.length) | 0]; }
     const state = {
         startMs: Date.now(),
         over: false,
@@ -178,6 +200,9 @@ public:
 
     function submitWin() {
         const elapsed = Date.now() - state.startMs;
+        msg.style.background = '#000';
+        msg.style.color = '#ff0';
+        msg.style.fontSize = '1.4rem';
         msg.textContent = 'Target score reached. Computing proof-of-work...';
         function doSubmit() {
             const body = new URLSearchParams();
@@ -191,9 +216,12 @@ public:
                 body: body.toString(),
             }).then(async (res) => {
                 const txt = await res.text();
-                msg.textContent = txt;
+                lockMsg.textContent = txt;
+                lockMsg.style.display = 'block';
+                msg.textContent = 'Target score reached!\n' + randomMsg();
             }).catch(() => {
-                msg.textContent = 'Network error while submitting score.';
+                lockMsg.textContent = 'Network error while submitting score.';
+                lockMsg.style.display = 'block';
             });
         }
         if (_powDone) doSubmit();
@@ -221,7 +249,7 @@ public:
                 e.y += state.stepDown;
                 if (e.y + e.h >= state.player.y) {
                     state.over = true;
-                    msg.textContent = 'Game over: monsters reached you.';
+                    msg.textContent = 'Game over: monsters reached you.\n' + randomMsg();
                     return;
                 }
             }
@@ -251,6 +279,9 @@ public:
                             if (state.score >= targetScore && !state.won) {
                                 state.won = true;
                                 state.over = true;
+                                msg.style.background = '#000';
+                                msg.style.color = '#ff0';
+                                msg.style.fontSize = '1.4rem';
                                 msg.textContent = 'Target score reached. Verifying with server...';
                                 submitWin();
                             }
@@ -266,7 +297,7 @@ public:
         for (const b of state.enemyBullets) {
             if (rectHit(b, state.player)) {
                 state.over = true;
-                msg.textContent = 'Game over: you were hit.';
+                msg.textContent = 'Game over: you were hit.\n' + randomMsg();
                 return;
             }
             if (damageObstacle(b.x + 1, b.y + 1)) {
