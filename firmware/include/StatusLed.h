@@ -42,6 +42,14 @@ public:
         _initialized = false;
     }
 
+    /// Release explicit color hold without cancelling an active blink effect.
+    void releaseHold()
+    {
+        _hold = false;
+        if (_blinkUntil == 0)
+            _initialized = false;
+    }
+
     /// Update LED based on current state.  Call every loop iteration.
     ///   relayActive      – door relay is energized
     ///   requestInProgress – HTTP request running

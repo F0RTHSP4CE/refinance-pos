@@ -15,9 +15,16 @@ static const uint8_t STATUS_LED_BRIGHTNESS = 64;
 // Timing
 // Duration the relay stays energized/open after successful transaction (ms)
 static const uint32_t DOOR_HOLD_MS = 4000;
+static const uint32_t POS_COIN_RECHARGE_MODE_MS = 30000;
+static const uint32_t POS_COIN_PRESENT_GUARD_MS = 2500;
 
 // Secret Network / API values are declared in secrets.h (not committed)
 #include "secrets.h" // defines WIFI_SSID, WIFI_PASS, REFINANCE_API_URL, USBUTLER_API_URL
+
+// Single-use NTAG215/216 POS coin payload. Pages are 4 bytes each.
+static const uint8_t POS_COIN_PAYLOAD_START_PAGE = 4;
+static const uint8_t POS_COIN_PAYLOAD_PAGE_COUNT = 5; // "RPC1" + 16-byte UUID
+static const uint8_t POS_COIN_MAX_TOKENS = 128;
 
 // I2C pin defaults from board variant
 static const uint8_t I2C_SDA = SDA;
