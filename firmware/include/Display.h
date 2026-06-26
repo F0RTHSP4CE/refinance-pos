@@ -8,14 +8,6 @@
 #define IDLE_PROMPT_BLINK_MS 1000
 #endif
 
-#ifndef IDLE_PROMPT_EFFECT_SWITCH_MS
-#define IDLE_PROMPT_EFFECT_SWITCH_MS 10000
-#endif
-
-#ifndef IDLE_PROMPT_FLICKER_MS
-#define IDLE_PROMPT_FLICKER_MS 500
-#endif
-
 class Display
 {
 public:
@@ -93,11 +85,6 @@ public:
         _idle.posName = posName;
         _idle.promptVisible = true;
         _idle.lastPromptBlink = millis();
-        _idle.effect = IdlePromptEffect::BLINK;
-        _idle.lastEffectSwitch = millis();
-        _idle.lastPromptFlicker = millis();
-        _idle.flickerRestorePending = false;
-        _idle.flickerCharIndex = 0;
     }
 
     void showStatus(const String &status, const String &posName = POS_NAME)
@@ -135,51 +122,14 @@ public:
 
             if (LCD_ROWS > 1 && now - _idle.lastPromptBlink >= IDLE_PROMPT_BLINK_MS)
             {
-                if (now - _idle.lastEffectSwitch >= IDLE_PROMPT_EFFECT_SWITCH_MS)
-                {
-                    _idle.lastEffectSwitch = now;
-                    _idle.effect = (_idle.effect == IdlePromptEffect::BLINK) ? IdlePromptEffect::FLICKER : IdlePromptEffect::BLINK;
-                    _idle.promptVisible = true;
-                    _idle.flickerRestorePending = false;
-                    printIdlePrompt(true);
-                }
-
-                if (_idle.effect == IdlePromptEffect::BLINK)
-                {
-                    _idle.lastPromptBlink = now;
-                    _idle.promptVisible = !_idle.promptVisible;
-                    printIdlePrompt(_idle.promptVisible);
-                }
-                else
-                {
-                    if (_idle.flickerRestorePending)
-                    {
-                        printIdlePrompt(true);
-                        _idle.flickerRestorePending = false;
-                    }
-                    else if (now - _idle.lastPromptFlicker >= IDLE_PROMPT_FLICKER_MS)
-                    {
-                        _idle.lastPromptFlicker = now;
-                        printIdlePromptFlicker(_idle.flickerCharIndex);
-                        do
-                        {
-                            _idle.flickerCharIndex = (_idle.flickerCharIndex + 1) % IDLE_PROMPT_TEXT_LEN;
-                        } while (IDLE_PROMPT_TEXT[_idle.flickerCharIndex] == ' ');
-                        _idle.flickerRestorePending = true;
-                    }
-                }
+                _idle.lastPromptBlink = now;
+                _idle.promptVisible = !_idle.promptVisible;
+                printIdlePrompt(_idle.promptVisible);
             }
         }
     }
 
 private:
-
-    enum class IdlePromptEffect
-    {
-        BLINK,
-        FLICKER
-    };
-
     LiquidCrystal_I2C _lcd;
     ILogger &_logger;
     struct IdleRotation
@@ -187,14 +137,9 @@ private:
         bool active = false;
         unsigned long lastRotate = 0;
         unsigned long lastPromptBlink = 0;
-        unsigned long lastPromptFlicker = 0;
-        unsigned long lastEffectSwitch = 0;
         uint8_t index = 0; // 0 -> POS_NAME, 1..N -> hints
-        uint8_t flickerCharIndex = 0;
         String posName;
         bool promptVisible = true;
-        bool flickerRestorePending = false;
-        IdlePromptEffect effect = IdlePromptEffect::BLINK;
     } _idle;
 
     void printCentered(const String &text, uint8_t line)
@@ -224,24 +169,5 @@ private:
             _lcd.write((uint8_t)0);
             _lcd.print(IDLE_PROMPT_TEXT);
         }
-    }
-
-    void printIdlePromptFlicker(uint8_t blankIndex)
-    {
-        char buffer[IDLE_PROMPT_TEXT_LEN + 1];
-        for (uint8_t i = 0; i < IDLE_PROMPT_TEXT_LEN; i++)
-            buffer[i] = IDLE_PROMPT_TEXT[i];
-        buffer[IDLE_PROMPT_TEXT_LEN] = '\0';
-
-        if (blankIndex < IDLE_PROMPT_TEXT_LEN)
-            buffer[blankIndex] = ' ';
-
-        _lcd.setCursor(0, 1);
-        for (uint8_t i = 0; i < LCD_COLS; i++)
-            _lcd.print(' ');
-
-        _lcd.setCursor(0, 1);
-        _lcd.write((uint8_t)0);
-        _lcd.print(buffer);
     }
 };
